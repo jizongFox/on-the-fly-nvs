@@ -3,7 +3,7 @@
 # GRAPHDECO research group, https://team.inria.fr/graphdeco
 # All rights reserved.
 #
-# This software is free for non-commercial, research and evaluation use 
+# This software is free for non-commercial, research and evaluation use
 # under the terms of the LICENSE.md file.
 #
 # For inquiries contact  george.drettakis@inria.fr
@@ -31,7 +31,9 @@ class MonoDepthInternal(torch.nn.Module):
         super(MonoDepthInternal, self).__init__()
         model_path = f"models/depth_anything_v2_{encoder}.pth"
         if not os.path.exists(model_path):
-            print(f"Downloading Depth-Anything-V2 model for {encoder}, may take a few minutes...")
+            print(
+                f"Downloading Depth-Anything-V2 model for {encoder}, may take a few minutes..."
+            )
             model_sizes = {
                 "vits": "Small",
                 "vitb": "Base",
@@ -71,12 +73,16 @@ class MonoDepthInternal(torch.nn.Module):
         self.sobel_x = (
             torch.tensor(
                 [[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]], device="cuda", dtype=torch.half
-            ).unsqueeze(0).unsqueeze(0)
+            )
+            .unsqueeze(0)
+            .unsqueeze(0)
         )
         self.sobel_y = (
             torch.tensor(
                 [[-1, -2, -1], [0, 0, 0], [1, 2, 1]], device="cuda", dtype=torch.half
-            ).unsqueeze(0).unsqueeze(0)
+            )
+            .unsqueeze(0)
+            .unsqueeze(0)
         )
 
     def forward(self, image: torch.Tensor):
@@ -91,7 +97,7 @@ class MonoDepthInternal(torch.nn.Module):
         grad_y = F.conv2d(depth, self.sobel_y, padding=1)
         edges = torch.cat((grad_x, grad_y), dim=0)
 
-        edges_sq_norm = (edges**2).sum(0, keepdim=True)
+        edges_sq_norm = (edges ** 2).sum(0, keepdim=True)
         var = 0.2
         confidence = torch.exp(-edges_sq_norm / var)
         return depth.float(), confidence.float()

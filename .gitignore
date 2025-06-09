@@ -7,3 +7,8 @@ Gaussian_Viewer.ini
 .vscode
 data/
 results*
+venv
+.idea
+data
+outputs
+.windsurf

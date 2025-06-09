@@ -4,14 +4,15 @@ import numpy as np
 import os
 from concurrent.futures import ThreadPoolExecutor
 import sys
-sys.path.append('.')
+
+sys.path.append(".")
 
 from scripts.rectify_tum import cam_params_dict, get_K_in_K_out
 from utils import get_image_names
 
 if __name__ == "__main__":
     """
-    Rectify from what is used from training (centred principal point) 
+    Rectify from what is used from training (centred principal point)
     to something without black borders for visualization
     """
     parser = argparse.ArgumentParser()
@@ -31,7 +32,7 @@ if __name__ == "__main__":
 
             image_names = get_image_names(in_folder)
             h, w = cv2.imread(f"{in_folder}/{image_names[0]}").shape[:2]
-            if h ==336 and method_id == 0:
+            if h == 336 and method_id == 0:
                 print("Mannually adjusting scale in intrinsics")
                 cam_params[0] *= 448 / 640
                 cam_params[1] *= 336 / 480
@@ -59,7 +60,7 @@ if __name__ == "__main__":
                     borderMode=cv2.BORDER_REFLECT,
                 )
                 pad = 4
-                dst = dst[pad:-pad, pad: -pad]
+                dst = dst[pad:-pad, pad:-pad]
                 cv2.imwrite(f"{out_folder}/{image_name}", dst)
                 cv2.imwrite(f"{out_folder}/{os.path.splitext(image_name)[0]}.jpg", dst)
 

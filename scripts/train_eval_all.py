@@ -3,7 +3,7 @@
 # GRAPHDECO research group, https://team.inria.fr/graphdeco
 # All rights reserved.
 #
-# This software is free for non-commercial, research and evaluation use 
+# This software is free for non-commercial, research and evaluation use
 # under the terms of the LICENSE.md file.
 #
 # For inquiries contact  george.drettakis@inria.fr
@@ -29,7 +29,10 @@ if __name__ == "__main__":
     )
     parser.add_argument("--base_dir", default="data")
     parser.add_argument("--base_out_dir", default="results")
-    parser.add_argument("--downsampling", default=1.0, type=float,
+    parser.add_argument(
+        "--downsampling",
+        default=1.0,
+        type=float,
         help="Downsampling for reconstruction. Use the original size when recomputing metrics",
     )
     parser.add_argument("--skip_reconstruction", action="store_true")

@@ -3,7 +3,7 @@
 # GRAPHDECO research group, https://team.inria.fr/graphdeco
 # All rights reserved.
 #
-# This software is free for non-commercial, research and evaluation use 
+# This software is free for non-commercial, research and evaluation use
 # under the terms of the LICENSE.md file.
 #
 # For inquiries contact  george.drettakis@inria.fr
@@ -54,6 +54,7 @@ class SceneModel:
     """
     Scene Model class that contains the scene's Gaussians, anchors, keyframes, and methods for rendering and optimization.
     """
+
     def __init__(
         self,
         width: int,
@@ -168,7 +169,7 @@ class SceneModel:
             torch.arange(-radius, radius + 1),
             indexing="ij",
         )
-        self.disc_kernel[0, 0, torch.sqrt(x**2 + y**2) <= radius + 0.5] = 1
+        self.disc_kernel[0, 0, torch.sqrt(x ** 2 + y ** 2) <= radius + 0.5] = 1
         self.disc_kernel = self.disc_kernel.cuda() / self.disc_kernel.sum()
 
         self.uv = (
@@ -333,10 +334,10 @@ class SceneModel:
         """
         self.interupt_optimization = False
         i = 0
-        while i < n_iters or (run_until_interupt and not self.interupt_optimization): 
+        while i < n_iters or (run_until_interupt and not self.interupt_optimization):
             self.optimization_step()
             i += 1
-        
+
     def join_optimization_thread(self):
         """
         Interupts the optimization loop and waits for the thread to finish.
@@ -345,7 +346,7 @@ class SceneModel:
             self.interupt_optimization = True
             self.optimization_thread.join()
             self.optimization_thread = None
-    
+
     def optimize_async(self, n_iters: int):
         """
         Starts an optimization thread that runs at least n_iters optimization steps.
@@ -456,7 +457,7 @@ class SceneModel:
         """
         keyframe = self.keyframes[keyframe_id]
         view_matrix = keyframe.get_Rt().transpose(0, 1)
-        scale = 2**pyr_lvl
+        scale = 2 ** pyr_lvl
         width, height = self.width // scale, self.height // scale
         render_pkg = self.render(width, height, view_matrix, scaling_modifier, bg)
         render_pkg["render"] = (
@@ -509,9 +510,11 @@ class SceneModel:
         )
         rasterizer = GaussianRasterizer(raster_settings)
         with self.lock:
-            # Load and blend anchors if in inference mode 
+            # Load and blend anchors if in inference mode
             if self.inference_mode and not top_view:
-                self.gaussian_params, self.anchor_weights = Anchor.blend(cam_centre, self.anchors, self.anchor_overlap)
+                self.gaussian_params, self.anchor_weights = Anchor.blend(
+                    cam_centre, self.anchors, self.anchor_overlap
+                )
             screenspace_points = torch.zeros_like(self.xyz, requires_grad=True)
             if self.xyz.shape[0] > 0:
                 # Set constant scaling and opacity to visualize the Gaussians' positions in the top view
@@ -572,7 +575,9 @@ class SceneModel:
         return closest_anchors, closest_anchors_ids
 
     @torch.no_grad()
-    def get_prev_keyframes(self, n: int, update_3dpts: bool, desc_kpts: DescribedKeypoints = None):
+    def get_prev_keyframes(
+        self, n: int, update_3dpts: bool, desc_kpts: DescribedKeypoints = None
+    ):
         """
         Get the n previous keyframes that are the closest to the last
         If desc_kpts is not None, we find the previous keyframes that have the most matches with desc_kpts. The search window is given by self.num_prev_keyframes_check
@@ -654,7 +659,7 @@ class SceneModel:
         img = F.interpolate(
             img[None], (self.height, self.width), mode="bilinear", align_corners=True
         )[0]
-        init_proba = get_lapla_norm(img, self.disc_kernel) # eq. 1
+        init_proba = get_lapla_norm(img, self.disc_kernel)  # eq. 1
 
         if keyframe.mask_pyr is not None:
             dilated_mask = (
@@ -677,7 +682,7 @@ class SceneModel:
         ## Define which pixels should become Gaussians
         init_proba *= self.init_proba_scaler
         penalty *= self.init_proba_scaler
-        sample_mask = torch.rand_like(init_proba) < init_proba - penalty # eq. 3
+        sample_mask = torch.rand_like(init_proba) < init_proba - penalty  # eq. 3
 
         sampled_uv = self.uv[sample_mask]
         ## Initialize positions
@@ -821,10 +826,10 @@ class SceneModel:
 
     def move_rand_keyframe_to_cpu(self):
         """Move a random keyframe to CPU memory"""
-        frame_id = np.random.choice(self.active_frames_gpu[:-self.n_kept_frames])
+        frame_id = np.random.choice(self.active_frames_gpu[: -self.n_kept_frames])
         self.keyframes[frame_id].to("cpu")
         self.active_frames_cpu.append(frame_id)
-        self.active_frames_gpu.remove(frame_id) 
+        self.active_frames_gpu.remove(frame_id)
 
     def move_rand_keyframe_to_gpu(self):
         """Move a random keyframe to GPU memory"""
@@ -832,12 +837,12 @@ class SceneModel:
             frame_id = np.random.choice(self.active_frames_cpu)
             self.keyframes[frame_id].to("cuda")
             self.active_frames_gpu.insert(0, frame_id)
-            self.active_frames_cpu.remove(frame_id) 
+            self.active_frames_cpu.remove(frame_id)
 
     def add_keyframe(self, keyframe: Keyframe, f=None):
         """Add a keyframe to the scene, add and prune Gaussians"""
 
-        # Make sure training is not running 
+        # Make sure training is not running
         self.join_optimization_thread()
 
         ## Add the keyframe and update the indices (sorted by distance to last keyframe)
@@ -955,12 +960,39 @@ class SceneModel:
 
                     # Merge the Gaussians by averaging their parameters
                     merged_gaussians = {
-                        "xyz": (self.gaussian_params["xyz"]['val'][selected_nn_idx, :] * weights).sum(dim=1),
-                        "f_dc": (self.gaussian_params["f_dc"]['val'][selected_nn_idx, :] * weights.unsqueeze(-1)).sum(dim=1),
-                        "f_rest": (self.gaussian_params["f_rest"]['val'][selected_nn_idx, :] * weights.unsqueeze(-1)).sum(dim=1),
-                        "opacity": inverse_sigmoid(self.gaussian_params["opacity"]['val'][selected_nn_idx, :].sigmoid() * weights).sum(dim=1),
-                        "scaling": torch.log((torch.exp(self.gaussian_params["scaling"]['val'][selected_nn_idx, :]) * weights * (k+1)).sum(dim=1)),
-                        "rotation": (self.gaussian_params["rotation"]['val'][selected_nn_idx, :] * weights).sum(dim=1),
+                        "xyz": (
+                            self.gaussian_params["xyz"]["val"][selected_nn_idx, :]
+                            * weights
+                        ).sum(dim=1),
+                        "f_dc": (
+                            self.gaussian_params["f_dc"]["val"][selected_nn_idx, :]
+                            * weights.unsqueeze(-1)
+                        ).sum(dim=1),
+                        "f_rest": (
+                            self.gaussian_params["f_rest"]["val"][selected_nn_idx, :]
+                            * weights.unsqueeze(-1)
+                        ).sum(dim=1),
+                        "opacity": inverse_sigmoid(
+                            self.gaussian_params["opacity"]["val"][
+                                selected_nn_idx, :
+                            ].sigmoid()
+                            * weights
+                        ).sum(dim=1),
+                        "scaling": torch.log(
+                            (
+                                torch.exp(
+                                    self.gaussian_params["scaling"]["val"][
+                                        selected_nn_idx, :
+                                    ]
+                                )
+                                * weights
+                                * (k + 1)
+                            ).sum(dim=1)
+                        ),
+                        "rotation": (
+                            self.gaussian_params["rotation"]["val"][selected_nn_idx, :]
+                            * weights
+                        ).sum(dim=1),
                     }
 
                     # Offload the previous Gaussians to the CPU
@@ -978,7 +1010,9 @@ class SceneModel:
                         self.keyframes[-self.n_kept_frames :],
                     )
                     self.anchors.append(self.active_anchor)
-                    self.active_frames_gpu = [kf.index for kf in self.active_anchor.keyframes]
+                    self.active_frames_gpu = [
+                        kf.index for kf in self.active_anchor.keyframes
+                    ]
                     self.active_frames_cpu = []
 
                     # Visualization

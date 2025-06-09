@@ -3,7 +3,7 @@
 # GRAPHDECO research group, https://team.inria.fr/graphdeco
 # All rights reserved.
 #
-# This software is free for non-commercial, research and evaluation use 
+# This software is free for non-commercial, research and evaluation use
 # under the terms of the LICENSE.md file.
 #
 # For inquiries contact  george.drettakis@inria.fr
@@ -23,6 +23,7 @@ class Anchor:
     """
     Represents an anchor that holds Gaussian parameters and associated keyframes.
     """
+
     def __init__(
         self,
         gaussian_params: dict[str, dict[str, torch.Tensor]],
@@ -68,9 +69,7 @@ class Anchor:
         Blend the Gaussian parameters of the closest anchors based on their distance to the centre of the camera to render.
         """
         anchor_weights = np.zeros(len(anchors))
-        anchor_positions = torch.stack(
-            [anchor.position for anchor in anchors], dim=0
-        )
+        anchor_positions = torch.stack([anchor.position for anchor in anchors], dim=0)
         anchor_dists = torch.linalg.vector_norm(
             anchor_positions - cam_centre[None], dim=-1
         )
@@ -101,15 +100,24 @@ class Anchor:
             params1 = anchors[closest_anchors_ids[0]].gaussian_params
             params2 = anchors[closest_anchors_ids[1]].gaussian_params
             gaussian_params = {
-                name: {"val": torch.cat([params1[name]["val"], params2[name]["val"]], dim=0)}
+                name: {
+                    "val": torch.cat(
+                        [params1[name]["val"], params2[name]["val"]], dim=0
+                    )
+                }
                 for name in params1
                 if name != "opacity"
             }
             gaussian_params["opacity"] = {
                 "val": torch.cat(
                     [
-                        inverse_sigmoid(torch.sigmoid(params1["opacity"]["val"]) * blending_weights),
-                        inverse_sigmoid(torch.sigmoid(params2["opacity"]["val"]) * (1 - blending_weights)),
+                        inverse_sigmoid(
+                            torch.sigmoid(params1["opacity"]["val"]) * blending_weights
+                        ),
+                        inverse_sigmoid(
+                            torch.sigmoid(params2["opacity"]["val"])
+                            * (1 - blending_weights)
+                        ),
                     ],
                     dim=0,
                 )
@@ -174,8 +182,16 @@ class Anchor:
 
         gaussian_params = {
             "xyz": {"val": torch.tensor(xyz, dtype=torch.float)},
-            "f_dc": {"val": torch.tensor(features_dc, dtype=torch.float).transpose(1, 2).contiguous()},
-            "f_rest": {"val": torch.tensor(features_extra, dtype=torch.float).transpose(1, 2).contiguous()},
+            "f_dc": {
+                "val": torch.tensor(features_dc, dtype=torch.float)
+                .transpose(1, 2)
+                .contiguous()
+            },
+            "f_rest": {
+                "val": torch.tensor(features_extra, dtype=torch.float)
+                .transpose(1, 2)
+                .contiguous()
+            },
             "scaling": {"val": torch.tensor(scales, dtype=torch.float)},
             "rotation": {"val": torch.tensor(rots, dtype=torch.float)},
             "opacity": {"val": torch.tensor(opacities, dtype=torch.float)},

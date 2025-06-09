@@ -3,7 +3,7 @@
 # GRAPHDECO research group, https://team.inria.fr/graphdeco
 # All rights reserved.
 #
-# This software is free for non-commercial, research and evaluation use 
+# This software is free for non-commercial, research and evaluation use
 # under the terms of the LICENSE.md file.
 #
 # For inquiries contact  george.drettakis@inria.fr
@@ -240,7 +240,7 @@ class MiniBAInternal(nn.Module):
             ).view(-1)
             weights = self.get_huber_weights(new_r) * mask
             new_r = new_r * weights
-            success_mask = ((new_r**2).mean() < (r**2).mean()) * (f_tmp > 0)
+            success_mask = ((new_r ** 2).mean() < (r ** 2).mean()) * (f_tmp > 0)
 
             # Apply Updates Conditionally
             Rs6D = Rs6D - success_mask * dR

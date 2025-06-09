@@ -3,7 +3,7 @@
 # GRAPHDECO research group, https://team.inria.fr/graphdeco
 # All rights reserved.
 #
-# This software is free for non-commercial, research and evaluation use 
+# This software is free for non-commercial, research and evaluation use
 # under the terms of the LICENSE.md file.
 #
 # For inquiries contact  george.drettakis@inria.fr
@@ -18,6 +18,7 @@ class Matches:
     """
     A class to store matched keypoints and their indices between two sets of keypoints.
     """
+
     def __init__(self, kpts, kpts_other, idx, idx_other):
         self.kpts = kpts
         self.kpts_other = kpts_other
@@ -56,7 +57,7 @@ class Matcher:
         )
 
     def evaluate_match(
-        self, desc_kpts: 'DescribedKeypoints', desc_kpts_other: 'DescribedKeypoints'
+        self, desc_kpts: "DescribedKeypoints", desc_kpts_other: "DescribedKeypoints"
     ):
         """
         Get the number of matches between two sets of described keypoints.
@@ -67,8 +68,8 @@ class Matcher:
     @torch.no_grad()
     def __call__(
         self,
-        desc_kpts: 'DescribedKeypoints',
-        desc_kpts_other: 'DescribedKeypoints',
+        desc_kpts: "DescribedKeypoints",
+        desc_kpts_other: "DescribedKeypoints",
         remove_outliers: bool = False,
         update_kpts_flag: str = "",
         kID: int = -1,

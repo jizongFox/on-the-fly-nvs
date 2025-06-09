@@ -3,7 +3,7 @@
 # GRAPHDECO research group, https://team.inria.fr/graphdeco
 # All rights reserved.
 #
-# This software is free for non-commercial, research and evaluation use 
+# This software is free for non-commercial, research and evaluation use
 # under the terms of the LICENSE.md file.
 #
 # For inquiries contact  george.drettakis@inria.fr
@@ -27,6 +27,7 @@ class Keyframe:
     """
     A keyframe in the scene, containing the image, camera parameters, and other information used for optimization.
     """
+
     def __init__(
         self,
         image: torch.Tensor,
@@ -42,7 +43,7 @@ class Keyframe:
         inference_mode: bool = False,
     ):
         self.image_pyr = [image]
-        if not inference_mode: # Only extract depth and feature maps in training mode
+        if not inference_mode:  # Only extract depth and feature maps in training mode
             self.feat_map = feat_extractor(image)
             self.mono_idepth, self.mono_depth_conf = depth_estimator(image)
             self.width = image.shape[2]
@@ -84,7 +85,7 @@ class Keyframe:
         self.depth_offset = torch.nn.Parameter(torch.zeros(1, device="cuda"))
 
         # Optimizer
-        if not inference_mode: # Only create optimizer in training mode
+        if not inference_mode:  # Only create optimizer in training mode
             params = {
                 "rW2C": {"val": self.rW2C, "lr": args.lr_poses},
                 "tW2C": {"val": self.tW2C, "lr": args.lr_poses},
@@ -150,7 +151,7 @@ class Keyframe:
     @torch.no_grad()
     def update_3dpts(self, all_keyframes: list[Keyframe]):
         """
-        Assign a 3D point to each keypoint in the keyframe based on triangulation and the latest rendered depth. 
+        Assign a 3D point to each keypoint in the keyframe based on triangulation and the latest rendered depth.
         """
         unload_desc_kpts = self.desc_kpts.kpts.device.type == "cpu"
         if unload_desc_kpts:
@@ -242,7 +243,6 @@ class Keyframe:
         for _ in range(len(self.image_pyr) - 1):
             self.idepth_pyr.append(F.avg_pool2d(self.idepth_pyr[-1], 2))
 
-
     @torch.no_grad()
     def sample_conf(self, uv):
         return sample(
@@ -293,7 +293,7 @@ class Keyframe:
             desc_kpts=None,
             Rt=torch.tensor(config["Rt"]).cuda(),
             index=index,
-            f=None, 
+            f=None,
             feat_extractor=None,
             depth_estimator=None,
             triangulator=None,

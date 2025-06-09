@@ -3,7 +3,7 @@
 # GRAPHDECO research group, https://team.inria.fr/graphdeco
 # All rights reserved.
 #
-# This software is free for non-commercial, research and evaluation use 
+# This software is free for non-commercial, research and evaluation use
 # under the terms of the LICENSE.md file.
 #
 # For inquiries contact  george.drettakis@inria.fr
@@ -24,13 +24,22 @@ import cv2
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("-m", "--model_path", required=True)
-    parser.add_argument("--render_path", required=True,
-        help="Directory to the COLMAP model of the render path")
-    parser.add_argument("--out_dir",required=True,
-        help="Directory to save the rendered images and video")
-    parser.add_argument("--alignment_path", default="", 
-                        help="COLMAP model of the training camera poses" 
-                             "used for aligning the render path to the scene.")
+    parser.add_argument(
+        "--render_path",
+        required=True,
+        help="Directory to the COLMAP model of the render path",
+    )
+    parser.add_argument(
+        "--out_dir",
+        required=True,
+        help="Directory to save the rendered images and video",
+    )
+    parser.add_argument(
+        "--alignment_path",
+        default="",
+        help="COLMAP model of the training camera poses"
+        "used for aligning the render path to the scene.",
+    )
     parser.add_argument("--framerate", type=int, default=30)
     parser.add_argument("--anchor_overlap", type=float, default=0.3)
     args = parser.parse_args()
@@ -69,8 +78,9 @@ if __name__ == "__main__":
         for idx, cam_extrinsics in enumerate(alignment_extrinsics):
             alignment_Rts[idx][:3, :3] = torch.Tensor(qvec2rotmat(cam_extrinsics.qvec))
             alignment_Rts[idx][:3, 3] = torch.Tensor(cam_extrinsics.tvec)
-            alignment_cam_centers[idx] = -alignment_Rts[idx][:3, :3].T @ alignment_Rts[idx][:3, 3]
-
+            alignment_cam_centers[idx] = (
+                -alignment_Rts[idx][:3, :3].T @ alignment_Rts[idx][:3, 3]
+            )
 
     os.makedirs(args.out_dir, exist_ok=True)
     render_camera = render_cameras[list(render_cameras.keys())[0]]

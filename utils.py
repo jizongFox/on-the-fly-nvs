@@ -3,7 +3,7 @@
 # GRAPHDECO research group, https://team.inria.fr/graphdeco
 # All rights reserved.
 #
-# This software is free for non-commercial, research and evaluation use 
+# This software is free for non-commercial, research and evaluation use
 # under the terms of the LICENSE.md file.
 #
 # For inquiries contact  george.drettakis@inria.fr
@@ -17,8 +17,10 @@ import cv2
 import torch.nn.functional as F
 import os
 
+
 def parse_time(seconds):
     return time.strftime("%H:%M:%S", time.gmtime(seconds))
+
 
 def get_image_names(in_folder, image_extensions=[".jpg", ".png", ".jpeg"]):
     return [
@@ -27,8 +29,10 @@ def get_image_names(in_folder, image_extensions=[".jpg", ".png", ".jpeg"]):
         if os.path.splitext(f)[-1].lower() in image_extensions
     ]
 
+
 def psnr(img1, img2):
     return 10 * torch.log10(1 / F.mse_loss(img1, img2)).item()
+
 
 def to_numpy(tensor):
     return tensor.detach().cpu().numpy()
@@ -52,7 +56,6 @@ def get_lapla_norm(img, kernel):
     return F.conv2d(laplacian_norm, kernel, padding="same")[0, 0].clamp(0, 1)
 
 
-
 def increment_runtime(runtime, start_time):
     # torch.cuda.synchronize()
     runtime[0] += time.time() - start_time
@@ -60,6 +63,7 @@ def increment_runtime(runtime, start_time):
 
 
 C0 = 0.28209479177387814
+
 
 def RGB2SH(rgb):
     return (rgb - 0.5) / C0
@@ -174,7 +178,9 @@ def display_matches(mkpts1, mkpts2, img1, img2, scale=1, match_step=1, indices=N
 
 
 @torch.no_grad()
-def draw_poses(image, view_matrix, view_fovx, scale, cam_width, cam_height, Rts, cam_f, color):
+def draw_poses(
+    image, view_matrix, view_fovx, scale, cam_width, cam_height, Rts, cam_f, color
+):
     """
     Overlay the camera frustums on the np image
 
@@ -194,19 +200,26 @@ def draw_poses(image, view_matrix, view_fovx, scale, cam_width, cam_height, Rts,
         # Rendering options
         width, height = image.shape[1], image.shape[0]
         f = fov2focal(view_fovx, width)
-        centre = torch.tensor([(width - 1) / 2, (height - 1) / 2], device='cuda')
+        centre = torch.tensor([(width - 1) / 2, (height - 1) / 2], device="cuda")
 
         # Camera intrinsics to draw
-        cam_centre = torch.tensor([(cam_width - 1) / 2, (cam_height - 1) / 2], device='cuda')
+        cam_centre = torch.tensor(
+            [(cam_width - 1) / 2, (cam_height - 1) / 2], device="cuda"
+        )
         # Make a 3D frustum using intrinsics
-        origin = torch.tensor([0, 0, 0], device='cuda')
-        corners2d = torch.tensor([[0, 0], [cam_width, 0], [cam_width, cam_height], [0, cam_height]], device='cuda')
+        origin = torch.tensor([0, 0, 0], device="cuda")
+        corners2d = torch.tensor(
+            [[0, 0], [cam_width, 0], [cam_width, cam_height], [0, cam_height]],
+            device="cuda",
+        )
         corners3d = depth2points(corners2d, scale, cam_f, cam_centre)
         # Duplicate and transform frustums for each pose
         cams_verts = torch.cat([origin.unsqueeze(0), corners3d], dim=0)
         n_cams = Rts.shape[0]
-        cams_verts = torch.bmm((cams_verts - Rts[:n_cams, None, :3, 3]), Rts[:n_cams, :3, :3])
-        cams_verts_view = (cams_verts @ view_matrix[:3, :3] + view_matrix[3:4, :3])
+        cams_verts = torch.bmm(
+            (cams_verts - Rts[:n_cams, None, :3, 3]), Rts[:n_cams, :3, :3]
+        )
+        cams_verts_view = cams_verts @ view_matrix[:3, :3] + view_matrix[3:4, :3]
         cams_verts_2d = pts2px(cams_verts_view, f, centre).view(n_cams, -1, 2)
         # Out of view check
         valid_cams = (cams_verts_view[..., 2] > 0).all(dim=-1)
@@ -230,22 +243,24 @@ def draw_poses(image, view_matrix, view_fovx, scale, cam_width, cam_height, Rts,
 @torch.no_grad()
 def draw_anchors(image, view_matrix, view_fovx, scale, anchors, anchor_weights=[]):
     coords = [
-        [ 1,  1,  1],
-        [ 1,  1, -1],
-        [ 1, -1,  1],
-        [ 1, -1, -1],
-        [-1,  1,  1],
-        [-1,  1, -1],
-        [-1, -1,  1],
+        [1, 1, 1],
+        [1, 1, -1],
+        [1, -1, 1],
+        [1, -1, -1],
+        [-1, 1, 1],
+        [-1, 1, -1],
+        [-1, -1, 1],
         [-1, -1, -1],
     ]
-    draw_order = [0,4,6,2,0,1,5,7,3,1,5,4,6,7,3,2,0]
-    centred_cube_verts = scale * torch.tensor([coords[i] for i in draw_order], device='cuda')
+    draw_order = [0, 4, 6, 2, 0, 1, 5, 7, 3, 1, 5, 4, 6, 7, 3, 2, 0]
+    centred_cube_verts = scale * torch.tensor(
+        [coords[i] for i in draw_order], device="cuda"
+    )
 
     # Rendering options
     width, height = image.shape[1], image.shape[0]
     f = fov2focal(view_fovx, width)
-    centre = torch.tensor([(width - 1) / 2, (height - 1) / 2], device='cuda')
+    centre = torch.tensor([(width - 1) / 2, (height - 1) / 2], device="cuda")
 
     if len(anchors) != len(anchor_weights):
         anchor_weights = np.zeros(len(anchors))
@@ -256,7 +271,14 @@ def draw_anchors(image, view_matrix, view_fovx, scale, anchors, anchor_weights=[
         if cube_vert_view[..., 2].min() > 0:
             cube_verts_2d = pts2px(cube_vert_view, f, centre)
             verts_2d = cube_verts_2d.cpu().numpy().astype(int)[None]
-            cv2.polylines(image, verts_2d, isClosed=False, color=(anchor_weight * 255, 0, (1-anchor_weight)*255), thickness=2, lineType=cv2.LINE_AA)
+            cv2.polylines(
+                image,
+                verts_2d,
+                isClosed=False,
+                color=(anchor_weight * 255, 0, (1 - anchor_weight) * 255),
+                thickness=2,
+                lineType=cv2.LINE_AA,
+            )
     return image
 
 
@@ -308,8 +330,8 @@ def get_transform_mean_up_fwd(input, target, w_scale):
     center_input_mean = center_input.mean(dim=0)
     center_target_mean = center_target.mean(dim=0)
     if w_scale:
-        s_input = ((center_input - center_input_mean)**2).sum(dim=-1).mean().sqrt()
-        s_target = ((center_target - center_target_mean)**2).sum(dim=-1).mean().sqrt()
+        s_input = ((center_input - center_input_mean) ** 2).sum(dim=-1).mean().sqrt()
+        s_target = ((center_target - center_target_mean) ** 2).sum(dim=-1).mean().sqrt()
         s = s_target / s_input
     else:
         s = 1.0
@@ -335,6 +357,7 @@ def align_mean_up_fwd(input, target, w_scale=False):
 
     return torch.linalg.inv(inv_input)
 
+
 ## Pose alignment and evaluation functions
 def align_poses(input, target, w_scale=True):
     """Align input poses to target using Procrustes analysis on camera centers"""
@@ -354,7 +377,7 @@ def align_poses(input, target, w_scale=True):
 # BARF: Bundle-Adjusting Neural Radiance Fields
 # Copyright (c) 2021 Chen-Hsuan Lin
 # Under the MIT License.
-# Modified to interface with our pose format 
+# Modified to interface with our pose format
 def rotation_distance(R1, R2, eps=1e-9):
     # http://www.boris-belousov.net/2016/12/01/quat-dist/
     R_diff = R1 @ R2.transpose(-2, -1)
@@ -373,8 +396,8 @@ def procrustes_analysis(X0, X1, w_scale=True):  # [N,3]
     X1c = X1 - t1
     # scale
     if w_scale:
-        s0 = (X0c**2).sum(dim=-1).mean().sqrt()
-        s1 = (X1c**2).sum(dim=-1).mean().sqrt()
+        s0 = (X0c ** 2).sum(dim=-1).mean().sqrt()
+        s1 = (X1c ** 2).sum(dim=-1).mean().sqrt()
     else:
         s0, s1 = 1, 1
     X0cs = X0c / s0
@@ -386,5 +409,3 @@ def procrustes_analysis(X0, X1, w_scale=True):  # [N,3]
         R[2] *= -1
     # align X1 to X0: X1to0 = (X1-t1)/s1@R.t()*s0+t0
     return t0[0], t1[0], s0, s1, R
-
-

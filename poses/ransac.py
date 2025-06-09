@@ -3,7 +3,7 @@
 # GRAPHDECO research group, https://team.inria.fr/graphdeco
 # All rights reserved.
 #
-# This software is free for non-commercial, research and evaluation use 
+# This software is free for non-commercial, research and evaluation use
 # under the terms of the LICENSE.md file.
 #
 # For inquiries contact  george.drettakis@inria.fr
@@ -129,7 +129,7 @@ class RANSACEstimator:
                     self.models.data_ptr(),
                     self.valid_model_mask.data_ptr(),
                     inliers.data_ptr(),
-                    cupy.float32(self.max_error**2),
+                    cupy.float32(self.max_error ** 2),
                     self.models.shape[0],
                     mkpts1.shape[0],
                 ),

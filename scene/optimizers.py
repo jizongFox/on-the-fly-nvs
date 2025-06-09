@@ -3,7 +3,7 @@
 # GRAPHDECO research group, https://team.inria.fr/graphdeco
 # All rights reserved.
 #
-# This software is free for non-commercial, research and evaluation use 
+# This software is free for non-commercial, research and evaluation use
 # under the terms of the LICENSE.md file.
 #
 # For inquiries contact  george.drettakis@inria.fr
@@ -16,6 +16,7 @@ from diff_gaussian_rasterization import adamUpdate, adamUpdateBasic
 
 class BaseAdam:
     """Adam optimizer for regular parameters. This is simpler than torch.optim.Adam and initializes faster."""
+
     @torch.no_grad()
     def __init__(self, params, betas=(0.9, 0.999), eps=1e-15):
         self.params = params
@@ -59,6 +60,7 @@ class BaseAdam:
 
 class SparseGaussianAdam(BaseAdam):
     """Adam optimizer for primitive parameters that can be optimized with sparse updates."""
+
     def __init__(self, params, betas=(0.9, 0.999), eps=1e-15, lr_dict={}):
         super().__init__(params=params, betas=betas, eps=eps)
 
@@ -123,7 +125,8 @@ class SparseGaussianAdam(BaseAdam):
                 param["lr"] = torch.cat(
                     [
                         param["lr"][valid_mask],
-                        torch.ones_like(extension_tensor) * self.lr_dict[key]["lr_init"],
+                        torch.ones_like(extension_tensor)
+                        * self.lr_dict[key]["lr_init"],
                     ],
                     dim=0,
                 ).contiguous()

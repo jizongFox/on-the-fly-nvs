@@ -3,7 +3,7 @@
 # GRAPHDECO research group, https://team.inria.fr/graphdeco
 # All rights reserved.
 #
-# This software is free for non-commercial, research and evaluation use 
+# This software is free for non-commercial, research and evaluation use
 # under the terms of the LICENSE.md file.
 #
 # For inquiries contact  george.drettakis@inria.fr
@@ -39,7 +39,7 @@ class StreamDataset:
         self.capture_thd.start()
 
         self.num_frames = 0
-    
+
     def _connect(self):
         if self.cap is not None:
             return
@@ -55,7 +55,7 @@ class StreamDataset:
     def _capture_frames(self) -> None:
         while self.running:
             if self.cap is None:
-                self._connect() 
+                self._connect()
                 time.sleep(self.retry_delay)
                 continue
 
@@ -94,10 +94,11 @@ class StreamDataset:
         self.running = False
         self.cap.release()
         self.capture_thd.join()
-    
+
     def __len__(self):
         # Arbitrary large number as we don't know the length of a stream
-        return 100_000_000  
+        return 100_000_000
+
 
 # Example usage
 if __name__ == "__main__":

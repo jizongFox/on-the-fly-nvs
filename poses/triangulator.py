@@ -3,7 +3,7 @@
 # GRAPHDECO research group, https://team.inria.fr/graphdeco
 # All rights reserved.
 #
-# This software is free for non-commercial, research and evaluation use 
+# This software is free for non-commercial, research and evaluation use
 # under the terms of the LICENSE.md file.
 #
 # For inquiries contact  george.drettakis@inria.fr
@@ -14,6 +14,7 @@ import torch.nn as nn
 
 from poses.feature_detector import DescribedKeypoints
 from utils import depth2points, pts2px
+
 
 def matches_to_points(uv, uv_matched, R, t, f, centre):
     p2 = t[None]  # [1, 3]
@@ -31,7 +32,9 @@ def matches_to_points(uv, uv_matched, R, t, f, centre):
     n2 = torch.cross(d2, n, dim=-1)  # [N, 3]
 
     # Compute distances
-    dist = torch.matmul(n2, p2.T) / torch.bmm(n2.unsqueeze(1), d1.unsqueeze(-1)).squeeze(-1)
+    dist = torch.matmul(n2, p2.T) / torch.bmm(
+        n2.unsqueeze(1), d1.unsqueeze(-1)
+    ).squeeze(-1)
 
     # # Compute pose direction and angles
     angles = torch.acos(torch.sum(d1 * d2, dim=1))  # Angle between d1 and d2
@@ -60,6 +63,7 @@ def matches_to_points(uv, uv_matched, R, t, f, centre):
     # Return 3D points, disambiguation, and reprojection error
     return xyz, disambiguation, error
 
+
 class TriangulatorInternal(nn.Module):
     def __init__(self):
         super().__init__()
@@ -75,19 +79,25 @@ class TriangulatorInternal(nn.Module):
             uv_other = uvs_others[cam_idx]
             Rt_other_inv = Rts_others_inv[cam_idx]
             rel_Rt = Rt @ Rt_other_inv
-            kpts3dTmp, disTmp, error = matches_to_points(uv, uv_other, rel_Rt[:3, :3], rel_Rt[:3, 3], f, centre)
-            validMask = (kpts3dTmp[:, 2] > 1e-6) * (disTmp > best_disambiguation) * (error < max_error)
+            kpts3dTmp, disTmp, error = matches_to_points(
+                uv, uv_other, rel_Rt[:3, :3], rel_Rt[:3, 3], f, centre
+            )
+            validMask = (
+                (kpts3dTmp[:, 2] > 1e-6)
+                * (disTmp > best_disambiguation)
+                * (error < max_error)
+            )
             validMask *= uv_other.min(dim=-1).values > 0
 
             kpts3d = torch.where(validMask.unsqueeze(-1), kpts3dTmp, kpts3d)
             best_disambiguation = torch.where(validMask, disTmp, best_disambiguation)
 
-
         depth = kpts3d[:, 2].clone()
         kpts3d = (kpts3d - Rt[None, :3, 3]) @ Rt[:3, :3]
         return kpts3d, depth, best_disambiguation, best_disambiguation > min_dis
-    
-class Triangulator():
+
+
+class Triangulator:
     @torch.no_grad()
     def __init__(self, n_pts, n_cams, max_error):
         self.n_cams = n_cams
@@ -100,13 +110,17 @@ class Triangulator():
         centre = torch.rand(2, device="cuda")
         self.max_error = torch.tensor(max_error, device="cuda")
         self.min_dis = torch.tensor(max_error * 30, device="cuda")
-        
+
         self.model = torch.cuda.make_graphed_callables(
-            self.model, (uv, uvs_others, Rt, Rts_others, f, centre, self.max_error, self.min_dis))
+            self.model,
+            (uv, uvs_others, Rt, Rts_others, f, centre, self.max_error, self.min_dis),
+        )
 
     def __call__(self, uv, uvs_others, Rt, Rts_others, f, centre):
-        return self.model(uv, uvs_others, Rt, Rts_others, f, centre, self.max_error, self.min_dis)
-    
+        return self.model(
+            uv, uvs_others, Rt, Rts_others, f, centre, self.max_error, self.min_dis
+        )
+
     def prepare_matches(self, desc_kpts: DescribedKeypoints):
         """
         Organize the sets of matches for the triangulation.
@@ -114,7 +128,9 @@ class Triangulator():
         """
         uv = desc_kpts.kpts
         uvs_others = -torch.ones(self.n_cams, uv.shape[0], 2, device="cuda")
-        n_matches = torch.tensor([matches.idx.shape[0] for matches in desc_kpts.matches.values()])
+        n_matches = torch.tensor(
+            [matches.idx.shape[0] for matches in desc_kpts.matches.values()]
+        )
         kf_indices = torch.tensor(list(desc_kpts.matches.keys()))
         chosen_ids = torch.topk(n_matches, min(self.n_cams, n_matches.shape[0])).indices
         chosen_kfs_ids = kf_indices[chosen_ids].tolist()

@@ -3,7 +3,7 @@
 # GRAPHDECO research group, https://team.inria.fr/graphdeco
 # All rights reserved.
 #
-# This software is free for non-commercial, research and evaluation use 
+# This software is free for non-commercial, research and evaluation use
 # under the terms of the LICENSE.md file.
 #
 # For inquiries contact  george.drettakis@inria.fr
@@ -28,6 +28,7 @@ class ImageDataset:
     It also supports loading masks and COLMAP poses if available.
     The next image can be fetched using the `getnext` method.
     """
+
     def __init__(self, args: Namespace):
         self.images_dir = os.path.join(args.source_path, args.images_dir)
         self.image_name_list = get_image_names(self.images_dir)
@@ -48,9 +49,9 @@ class ImageDataset:
                 os.path.join(self.mask_dir, os.path.splitext(image_name)[0] + ".png")
                 for image_name in self.image_name_list
             ]
-            assert all(os.path.exists(mask_path) for mask_path in self.mask_paths), (
-                "Not all masks exist."
-            )
+            assert all(
+                os.path.exists(mask_path) for mask_path in self.mask_paths
+            ), "Not all masks exist."
 
         self.downsampling = args.downsampling
         self.num_threads = min(args.num_loader_threads, len(self.image_paths))
@@ -79,7 +80,6 @@ class ImageDataset:
             first_image = self._load_image(self.image_paths[0])
             self.width, self.height = first_image.shape[2], first_image.shape[1]
 
-
         # Load COLMAP data
         self.load_colmap_data(os.path.join(args.source_path, "sparse/0"))
 
@@ -88,9 +88,9 @@ class ImageDataset:
             "Rt" in self.infos[image_name] for image_name in self.image_name_list
         )
         if args.use_colmap_poses:
-            assert has_all_poses, (
-                "COLMAP poses are required but not all images have poses."
-            )
+            assert (
+                has_all_poses
+            ), "COLMAP poses are required but not all images have poses."
             self.align_colmap_poses()
 
         if args.eval_poses and not has_all_poses:
@@ -128,7 +128,9 @@ class ImageDataset:
                 fy=1 / self.downsampling,
                 interpolation=cv2.INTER_AREA,
             )
-        image = cv2.cvtColor(image, cv2.COLOR_BGRA2RGBA if image.shape[-1] == 4 else cv2.COLOR_BGR2RGB)
+        image = cv2.cvtColor(
+            image, cv2.COLOR_BGRA2RGBA if image.shape[-1] == 4 else cv2.COLOR_BGR2RGB
+        )
         image = torch.from_numpy(image).permute(2, 0, 1).float() / 255.0
         return image
 

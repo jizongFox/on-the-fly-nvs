@@ -3,7 +3,7 @@
 # GRAPHDECO research group, https://team.inria.fr/graphdeco
 # All rights reserved.
 #
-# This software is free for non-commercial, research and evaluation use 
+# This software is free for non-commercial, research and evaluation use
 # under the terms of the LICENSE.md file.
 #
 # For inquiries contact  george.drettakis@inria.fr
@@ -52,7 +52,9 @@ if __name__ == "__main__":
     height, width = dataset.get_image_size()
 
     # Initialize other modules
-    print("Initializing modules and running just in time compilation, may take a while...")
+    print(
+        "Initializing modules and running just in time compilation, may take a while..."
+    )
     max_error = max(args.match_max_error * width, 1.5)
     min_displacement = max(args.min_displacement * width, 30)
     matcher = Matcher(args.fundmat_samples, max_error)
@@ -70,11 +72,13 @@ if __name__ == "__main__":
 
     # Initialize the viewer
     if args.viewer_mode in ["server", "local"]:
-        viewer_mode = ViewerMode.SERVER if args.viewer_mode == "server" else ViewerMode.LOCAL
+        viewer_mode = (
+            ViewerMode.SERVER if args.viewer_mode == "server" else ViewerMode.LOCAL
+        )
         viewer = GaussianViewer.from_scene_model(scene_model, viewer_mode)
         viewer_thd = Thread(target=viewer.run, args=(args.ip, args.port), daemon=True)
         viewer_thd.start()
-        viewer.throttling = True # Enable throttling when training
+        viewer.throttling = True  # Enable throttling when training
     elif args.viewer_mode == "web":
         ip = "0.0.0.0"
         server = TCPServer((ip, 8000), SimpleHTTPRequestHandler)
@@ -113,12 +117,12 @@ if __name__ == "__main__":
                     "\033[31mPaused. Press the Start button in the webviewer\033[0m"
                 )
                 time.sleep(0.1)
-            
+
             # Finish reconstruction
             if viewer.state == "finish":
                 viewer.trainer_state = "finish"
                 break
-        
+
         if n_keyframes == 0:
             image, info = dataset.getnext()
             prev_desc_kpts = detector(image)
@@ -274,7 +278,7 @@ if __name__ == "__main__":
                     should_add_keyframe = False
 
         if should_add_keyframe:
-            ## Check if anchor creation is needed based on the primitives' size 
+            ## Check if anchor creation is needed based on the primitives' size
             start_time = time.time()
             scene_model.place_anchor_if_needed()
             increment_runtime(runtimes["anc"], start_time)
@@ -292,10 +296,7 @@ if __name__ == "__main__":
                 metrics = scene_model.evaluate(args.eval_poses)
 
             ## Save intermediate model
-            if (
-                frameID % args.save_every == 0
-                and args.save_every > 0
-            ):
+            if frameID % args.save_every == 0 and args.save_every > 0:
                 scene_model.save(
                     os.path.join(args.model_path, "progress", f"{frameID:05d}")
                 )
@@ -360,7 +361,7 @@ if __name__ == "__main__":
                 pbar.set_postfix_str(",".join(bar_postfix))
                 scene_model.inference_mode = False
                 torch.cuda.empty_cache()
-                
+
         # Set to inference mode so that the model can be rendered properly
         scene_model.inference_mode = True
 
@@ -369,7 +370,7 @@ if __name__ == "__main__":
             while True:
                 time.sleep(1)
         else:
-            viewer.throttling = False # Disable throttling when done training
+            viewer.throttling = False  # Disable throttling when done training
             # Loop to keep the viewer alive
             while viewer.running:
                 time.sleep(1)

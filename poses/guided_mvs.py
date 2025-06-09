@@ -3,7 +3,7 @@
 # GRAPHDECO research group, https://team.inria.fr/graphdeco
 # All rights reserved.
 #
-# This software is free for non-commercial, research and evaluation use 
+# This software is free for non-commercial, research and evaluation use
 # under the terms of the LICENSE.md file.
 #
 # For inquiries contact  george.drettakis@inria.fr
@@ -13,7 +13,8 @@ import math
 import cupy
 import torch
 
-class GuidedMVS():
+
+class GuidedMVS:
     @torch.no_grad()
     def __init__(self, args, num_depth_candidates=16):
         self.n_cams = args.num_prev_keyframes_miniba_incr
@@ -21,13 +22,15 @@ class GuidedMVS():
         self.idepth_range = 2e-1
 
         # Read the CUDA source code and set the include directory to poses/
-        with open('poses/guided_mvs.cu', 'r') as f:
+        with open("poses/guided_mvs.cu", "r") as f:
             cuda_source = f.read()
         cuda_source = cuda_source.replace("NUM_CAMS", str(self.n_cams))
-        cuda_source = cuda_source.replace("NUM_DEPTH_CANDIDATES", str(num_depth_candidates))
+        cuda_source = cuda_source.replace(
+            "NUM_DEPTH_CANDIDATES", str(num_depth_candidates)
+        )
         self.module = cupy.RawModule(
-            code=cuda_source, 
-            options=('--std=c++14', '-Iposes'),
+            code=cuda_source,
+            options=("--std=c++14", "-Iposes"),
         )
         self.uvToDepth = self.module.get_function("uvToDepth")
 
@@ -35,11 +38,16 @@ class GuidedMVS():
     def __call__(self, uv, refKeyframe, keyframes: list):
         uv = uv.contiguous()
         # Get relative poses
-        other2ref = [keyframe.get_Rt() @ torch.linalg.inv(refKeyframe.get_Rt()) for keyframe in keyframes]
+        other2ref = [
+            keyframe.get_Rt() @ torch.linalg.inv(refKeyframe.get_Rt())
+            for keyframe in keyframes
+        ]
         other2ref = torch.stack(other2ref, dim=0)[..., :3, :4].contiguous()
         # Get feature maps for all neighbour keyframes
         refFeatMap = refKeyframe.feat_map.contiguous()
-        featMaps = torch.stack([keyframe.feat_map.cuda().contiguous() for keyframe in keyframes], dim=0)
+        featMaps = torch.stack(
+            [keyframe.feat_map.cuda().contiguous() for keyframe in keyframes], dim=0
+        )
         intrinsics = torch.cat([refKeyframe.f, refKeyframe.centre], dim=0).contiguous()
         mono_idepth = refKeyframe.mono_idepth.contiguous()
 
@@ -55,7 +63,7 @@ class GuidedMVS():
                 uv.data_ptr(),
                 refFeatMap.data_ptr(),
                 featMaps.data_ptr(),
-                other2ref.data_ptr(), 
+                other2ref.data_ptr(),
                 intrinsics.data_ptr(),
                 mono_idepth.data_ptr(),
                 depth.data_ptr(),
@@ -68,7 +76,7 @@ class GuidedMVS():
                 mono_idepth.shape[-1],
                 refKeyframe.image_pyr[0].shape[1],
                 refKeyframe.image_pyr[0].shape[2],
-            )
+            ),
         )
 
         return depth, idist >= 0
