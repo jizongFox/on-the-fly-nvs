@@ -35,6 +35,8 @@ from utils import align_mean_up_fwd, increment_runtime
 from webviewer.webviewer import WebViewer
 
 if __name__ == "__main__":
+    torch.set_float32_matmul_precision("medium")
+    torch.backends.cudnn.benchmark = True
     torch.random.manual_seed(0)
     torch.cuda.manual_seed(0)
     np.random.seed(0)
@@ -69,7 +71,12 @@ if __name__ == "__main__":
         args.matching.num_kpts, args.miniba.num_prev_keyframes_miniba_incr, max_error
     )
     pose_initializer = PoseInitializer(
-        width, height, triangulator, matcher, 2 * max_error, args
+        width,
+        height,
+        triangulator=triangulator,
+        matcher=matcher,
+        max_pnp_error=2 * max_error,
+        args=args,
     )
     focal = pose_initializer.f_init
     dense_extractor = DenseExtractor(width, height)

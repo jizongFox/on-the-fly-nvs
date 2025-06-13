@@ -29,6 +29,7 @@ class PoseInitializer:
         self,
         width: int,
         height,
+        *,
         triangulator: Triangulator,
         matcher: Matcher,
         max_pnp_error: float,

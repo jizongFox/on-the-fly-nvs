@@ -139,3 +139,12 @@ class Triangulator:
             matches = desc_kpts.matches[index]
             uvs_others[i, matches.idx, :] = matches.kpts_other
         return uv, uvs_others, chosen_kfs_ids
+
+    def __repr__(self):
+        return (
+            f"{self.__class__.__name__}(n_cams={self.n_cams}, max_error={self.max_error.item()}, "
+            f"min_dis={self.min_dis.item()})"
+        )
+
+    def __str__(self):
+        return self.__repr__()

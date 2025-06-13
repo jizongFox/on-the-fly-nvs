@@ -68,3 +68,9 @@ class DenseExtractor:
     @torch.no_grad()
     def __call__(self, image):
         return self.extractor(image[None].half())
+
+    def __repr__(self):
+        return f"DenseExtractor(width={self.extractor.width}, height={self.extractor.height})"
+
+    def __str__(self):
+        return self.__repr__()

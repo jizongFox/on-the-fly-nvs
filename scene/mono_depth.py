@@ -97,7 +97,7 @@ class MonoDepthInternal(torch.nn.Module):
         grad_y = F.conv2d(depth, self.sobel_y, padding=1)
         edges = torch.cat((grad_x, grad_y), dim=0)
 
-        edges_sq_norm = (edges ** 2).sum(0, keepdim=True)
+        edges_sq_norm = (edges**2).sum(0, keepdim=True)
         var = 0.2
         confidence = torch.exp(-edges_sq_norm / var)
         return depth.float(), confidence.float()
@@ -154,3 +154,9 @@ class MonoDepthEstimator:
     def __call__(self, image: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         depth, conf = self.model(image)
         return depth.clone(), conf.clone()
+
+    def __repr__(self):
+        return f"{self.__class__.__name__}(width={self.width}, height={self.height})"
+
+    def __str__(self):
+        return self.__repr__()
