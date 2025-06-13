@@ -11,17 +11,18 @@
 
 import os
 import time
+from http.server import SimpleHTTPRequestHandler
+from socketserver import TCPServer
+from threading import Thread
 
 import numpy as np
 import torch
+from graphdecoviewer.types import ViewerMode
 from tqdm import tqdm
 
-from socketserver import TCPServer
-from http.server import SimpleHTTPRequestHandler
 from args import get_args
-from threading import Thread
 from dataloaders.image_dataset import ImageDataset
-from dataloaders.stream_dataset import StreamDataset
+from gaussianviewer import GaussianViewer
 from poses.feature_detector import Detector
 from poses.matcher import Matcher
 from poses.pose_initializer import PoseInitializer
@@ -30,10 +31,8 @@ from scene.dense_extractor import DenseExtractor
 from scene.keyframe import Keyframe
 from scene.mono_depth import MonoDepthEstimator
 from scene.scene_model import SceneModel
-from gaussianviewer import GaussianViewer
-from webviewer.webviewer import WebViewer
-from graphdecoviewer.types import ViewerMode
 from utils import align_mean_up_fwd, increment_runtime
+from webviewer.webviewer import WebViewer
 
 if __name__ == "__main__":
     torch.random.manual_seed(0)
@@ -43,11 +42,19 @@ if __name__ == "__main__":
     args = get_args()
 
     # Initialize dataloader
-    if "://" in args.source_path:
+    if "://" in args.data.source_path.as_posix():
+        raise NotImplementedError(
+            "Streaming from a URL is not supported yet. Please use a local video file or a directory with images."
+        )
         dataset = StreamDataset(args.source_path, args.downsampling)
         is_stream = True
     else:
-        dataset = ImageDataset(args)
+        dataset = ImageDataset(
+            args=args.data,
+            test_hold=args.evaluation.test_hold,
+            use_colmap_poses=args.colmap.use_colmap_poses,
+            eval_poses=args.colmap.eval_poses,
+        )
         is_stream = False
     height, width = dataset.get_image_size()
 
@@ -55,11 +62,11 @@ if __name__ == "__main__":
     print(
         "Initializing modules and running just in time compilation, may take a while..."
     )
-    max_error = max(args.match_max_error * width, 1.5)
-    min_displacement = max(args.min_displacement * width, 30)
-    matcher = Matcher(args.fundmat_samples, max_error)
+    max_error = max(args.matching.match_max_error * width, 1.5)
+    min_displacement = max(args.matching.min_displacement * width, 30)
+    matcher = Matcher(args.matching.fundmat_samples, max_error)
     triangulator = Triangulator(
-        args.num_kpts, args.num_prev_keyframes_miniba_incr, max_error
+        args.matching.num_kpts, args.miniba.num_prev_keyframes_miniba_incr, max_error
     )
     pose_initializer = PoseInitializer(
         width, height, triangulator, matcher, 2 * max_error, args
@@ -67,26 +74,30 @@ if __name__ == "__main__":
     focal = pose_initializer.f_init
     dense_extractor = DenseExtractor(width, height)
     depth_estimator = MonoDepthEstimator(width, height)
-    scene_model = SceneModel(width, height, args, matcher)
-    detector = Detector(args.num_kpts, width, height)
+    scene_model = SceneModel(width, height, matcher=matcher, args=args)
+    detector = Detector(args.matching.num_kpts, width, height)
 
     # Initialize the viewer
-    if args.viewer_mode in ["server", "local"]:
+    if args.viewer.viewer_mode in ["server", "local"]:
         viewer_mode = (
-            ViewerMode.SERVER if args.viewer_mode == "server" else ViewerMode.LOCAL
+            ViewerMode.SERVER
+            if args.viewer.viewer_mode == "server"
+            else ViewerMode.LOCAL
         )
         viewer = GaussianViewer.from_scene_model(scene_model, viewer_mode)
-        viewer_thd = Thread(target=viewer.run, args=(args.ip, args.port), daemon=True)
+        viewer_thd = Thread(
+            target=viewer.run, args=(args.viewer.ip, args.viewer.port), daemon=True
+        )
         viewer_thd.start()
         viewer.throttling = True  # Enable throttling when training
-    elif args.viewer_mode == "web":
+    elif args.viewer.viewer_mode == "web":
         ip = "0.0.0.0"
         server = TCPServer((ip, 8000), SimpleHTTPRequestHandler)
         server_thd = Thread(target=server.serve_forever, daemon=True)
         server_thd.start()
         print(f"Visit http://{ip}:8000/webviewer to for the viewer")
 
-        viewer = WebViewer(scene_model, args.ip, args.port)
+        viewer = WebViewer(scene_model, args.viewer.ip, args.viewer.port)
         viewer_thd = Thread(target=viewer.run, daemon=True)
         viewer_thd.start()
 
@@ -102,13 +113,13 @@ if __name__ == "__main__":
     metrics = {}
 
     ## Scene reconstruction
-    print(f"Starting reconstruction for {args.source_path}")
+    print(f"Starting reconstruction for {args.data.source_path}")
     pbar = tqdm(range(0, len(dataset)))
     reconstruction_start_time = time.time()
     for frameID in pbar:
         start_time = time.time()
 
-        if args.viewer_mode == "web":
+        if args.viewer.viewer_mode == "web":
             viewer.trainer_state = "running"
 
             # Paused
@@ -139,7 +150,7 @@ if __name__ == "__main__":
         dist = torch.norm(curr_prev_matches.kpts - curr_prev_matches.kpts_other, dim=-1)
         should_add_keyframe = (
             dist.median() > min_displacement
-            and len(curr_prev_matches.kpts) > args.min_num_inliers
+            and len(curr_prev_matches.kpts) > args.matching.min_num_inliers
         )
         # Always add test frames so we estimate their poses
         should_add_keyframe |= info["is_test"]
@@ -148,11 +159,11 @@ if __name__ == "__main__":
         if should_add_keyframe:
             ## Bootstrap
             # Accumulate keyframes for pose initialization
-            if n_keyframes < args.num_keyframes_miniba_bootstrap:
+            if n_keyframes < args.miniba.num_keyframes_miniba_bootstrap:
                 bootstrap_keyframe_dicts.append({"image": image, "info": info})
                 bootstrap_desc_kpts.append(desc_kpts)
 
-            if n_keyframes == args.num_keyframes_miniba_bootstrap - 1:
+            if n_keyframes == args.miniba.num_keyframes_miniba_bootstrap - 1:
                 start_time = time.time()
                 Rts, f, _ = pose_initializer.initialize_bootstrap(bootstrap_desc_kpts)
                 focal = f.cpu().item()
@@ -161,7 +172,7 @@ if __name__ == "__main__":
                     zip(bootstrap_keyframe_dicts, bootstrap_desc_kpts, Rts)
                 ):
                     start_time = time.time()
-                    if args.use_colmap_poses:
+                    if args.colmap.use_colmap_poses:
                         Rt = keyframe_dict["info"]["Rt"]
                         f = keyframe_dict["info"]["focal"]
                     keyframe = Keyframe(
@@ -178,10 +189,10 @@ if __name__ == "__main__":
                     )
                     scene_model.add_keyframe(keyframe, f)
                     increment_runtime(runtimes["Add"], start_time)
-                if args.viewer_mode not in ["none", "web"]:
+                if args.viewer.viewer_mode not in ["none", "web"]:
                     viewer.reset_intrinsics("point_view")
                 prev_keyframe = keyframe
-                for index in range(args.num_keyframes_miniba_bootstrap):
+                for index in range(args.miniba.num_keyframes_miniba_bootstrap):
                     start_time = time.time()
                     scene_model.add_new_gaussians(index)
                     increment_runtime(runtimes["Init"], start_time)
@@ -189,9 +200,9 @@ if __name__ == "__main__":
                 # Run initial optimization on the bootstrap keyframes
                 # If streaming, run async optimization until the next keyframe is added
                 if is_stream:
-                    scene_model.optimize_async(args.num_iterations)
+                    scene_model.optimize_async(args.training.num_iterations)
                 else:
-                    scene_model.optimization_loop(args.num_iterations)
+                    scene_model.optimization_loop(args.training.num_iterations)
                 increment_runtime(runtimes["Opt"], start_time)
                 last_reboot = n_keyframes
 
@@ -226,17 +237,17 @@ if __name__ == "__main__":
                     scene_model.reset()
                     for i in range(3, 0, -1):
                         scene_model.add_new_gaussians(-i)
-                    for _ in range(3 * args.num_iterations):
+                    for _ in range(3 * args.training.num_iterations):
                         scene_model.optimization_step()
                     needs_reboot = False
                     last_reboot = n_keyframes
 
             ## Incremental reconstruction
             # Incremental pose initialization
-            if n_keyframes >= args.num_keyframes_miniba_bootstrap:
+            if n_keyframes >= args.miniba.num_keyframes_miniba_bootstrap:
                 start_time = time.time()
                 prev_keyframes = scene_model.get_prev_keyframes(
-                    args.num_prev_keyframes_miniba_incr, True, desc_kpts
+                    args.miniba.num_prev_keyframes_miniba_incr, True, desc_kpts
                 )
                 increment_runtime(runtimes["tri"], start_time)
                 start_time = time.time()
@@ -246,7 +257,7 @@ if __name__ == "__main__":
                 increment_runtime(runtimes["BAI"], start_time)
                 start_time = time.time()
                 if Rt is not None:
-                    if args.use_colmap_poses:
+                    if args.colmap.use_colmap_poses:
                         Rt = info["Rt"]
                     keyframe = Keyframe(
                         image,
@@ -270,9 +281,9 @@ if __name__ == "__main__":
                     start_time = time.time()
                     # If streaming, run async optimization until the next keyframe is added
                     if is_stream:
-                        scene_model.optimize_async(args.num_iterations)
+                        scene_model.optimize_async(args.training.num_iterations)
                     else:
-                        scene_model.optimization_loop(args.num_iterations)
+                        scene_model.optimization_loop(args.training.num_iterations)
                     increment_runtime(runtimes["Opt"], start_time)
                 else:
                     should_add_keyframe = False
@@ -289,23 +300,28 @@ if __name__ == "__main__":
 
             ## Intermediate evaluation
             if (
-                n_keyframes % args.test_frequency == 0
-                and args.test_frequency > 0
-                and (args.test_hold > 0 or args.eval_poses)
+                n_keyframes % args.evaluation.test_frequency == 0
+                and args.evaluation.test_frequency > 0
+                and (args.evaluation.test_hold > 0 or args.colmap.eval_poses)
             ):
-                metrics = scene_model.evaluate(args.eval_poses)
+                metrics = scene_model.evaluate(args.colmap.eval_poses)
 
             ## Save intermediate model
-            if frameID % args.save_every == 0 and args.save_every > 0:
+            if (
+                frameID % args.checkpoint.save_every == 0
+                and args.checkpoint.save_every > 0
+            ):
                 scene_model.save(
-                    os.path.join(args.model_path, "progress", f"{frameID:05d}")
+                    os.path.join(
+                        args.checkpoint.model_path, "progress", f"{frameID:05d}"
+                    )
                 )
 
             ## Display optimization progress and metrics
             bar_postfix = []
             for key, value in metrics.items():
                 bar_postfix += [f"\033[31m{key}:{value:.2f}\033[0m"]
-            if args.display_runtimes:
+            if args.evaluation.display_runtimes:
                 for key, value in runtimes.items():
                     if value[1] > 0:
                         bar_postfix += [
@@ -325,20 +341,24 @@ if __name__ == "__main__":
     scene_model.enable_inference_mode()
 
     # Save the model and metrics
-    print("Saving the reconstruction to:", args.model_path)
-    metrics = scene_model.save(args.model_path, reconstruction_time, len(dataset))
+    print("Saving the reconstruction to:", args.checkpoint.model_path)
+    metrics = scene_model.save(
+        args.checkpoint.model_path.as_posix(), reconstruction_time, len(dataset)
+    )
     print(
         ", ".join(
-            f"{metric}: {value:.3f}"
-            if isinstance(value, float)
-            else f"{metric}: {value}"
+            (
+                f"{metric}: {value:.3f}"
+                if isinstance(value, float)
+                else f"{metric}: {value}"
+            )
             for metric, value in metrics.items()
         )
     )
 
     # Fine tuning after initial reconstruction
-    if len(args.save_at_finetune_epoch) > 0:
-        finetune_epochs = max(args.save_at_finetune_epoch)
+    if len(args.training.save_at_finetune_epoch) > 0:
+        finetune_epochs = max(args.training.save_at_finetune_epoch)
         torch.cuda.empty_cache()
         scene_model.inference_mode = False
         pbar = tqdm(range(0, finetune_epochs), desc="Fine tuning")
@@ -349,11 +369,12 @@ if __name__ == "__main__":
             epoch_time = time.time() - epoch_start_time
             reconstruction_time += epoch_time
             # Save the model and metrics
-            if epoch + 1 in args.save_at_finetune_epoch:
+            if epoch + 1 in args.training.save_at_finetune_epoch:
                 torch.cuda.empty_cache()
                 scene_model.inference_mode = True
                 metrics = scene_model.save(
-                    os.path.join(args.model_path, str(epoch + 1)), reconstruction_time
+                    os.path.join(args.checkpoint.model_path, str(epoch + 1)),
+                    reconstruction_time,
                 )
                 bar_postfix = []
                 for key, value in metrics.items():
@@ -365,8 +386,8 @@ if __name__ == "__main__":
         # Set to inference mode so that the model can be rendered properly
         scene_model.inference_mode = True
 
-    if args.viewer_mode != "none":
-        if args.viewer_mode == "web":
+    if args.viewer.viewer_mode != "none":
+        if args.viewer.viewer_mode == "web":
             while True:
                 time.sleep(1)
         else:

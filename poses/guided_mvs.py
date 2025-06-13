@@ -13,10 +13,12 @@ import math
 import cupy
 import torch
 
+from args import MiniBAConfig
+
 
 class GuidedMVS:
     @torch.no_grad()
-    def __init__(self, args, num_depth_candidates=16):
+    def __init__(self, args: MiniBAConfig, num_depth_candidates=16):
         self.n_cams = args.num_prev_keyframes_miniba_incr
         self.num_depth_candidates = num_depth_candidates
         self.idepth_range = 2e-1

@@ -9,32 +9,33 @@
 # For inquiries contact  george.drettakis@inria.fr
 #
 
-from argparse import Namespace
 import gc
-import os
 import json
 import math
+import os
 import threading
-import time
 import warnings
+
 import cv2
+import lpips
+import numpy as np
 import torch
 import torch.nn.functional as F
-import numpy as np
-
-import lpips
-from fused_ssim import fused_ssim
 from diff_gaussian_rasterization import (
     GaussianRasterizationSettings,
     GaussianRasterizer,
 )
-from simple_knn._C import distIndex2
+from fused_ssim import fused_ssim
+from simple_knn._C import distIndex2  # noqa
+
+from args import Config
+from dataloaders.read_write_model import write_model
 from poses.feature_detector import DescribedKeypoints
-from poses.matcher import Matcher
 from poses.guided_mvs import GuidedMVS
-from scene.optimizers import SparseGaussianAdam
-from scene.keyframe import Keyframe
+from poses.matcher import Matcher
 from scene.anchor import Anchor
+from scene.keyframe import Keyframe
+from scene.optimizers import SparseGaussianAdam
 from utils import (
     RGB2SH,
     depth2points,
@@ -47,7 +48,6 @@ from utils import (
     psnr,
     rotation_distance,
 )
-from dataloaders.read_write_model import write_model
 
 
 class SceneModel:
@@ -59,9 +59,10 @@ class SceneModel:
         self,
         width: int,
         height: int,
-        args: Namespace,
+        *,
         matcher: Matcher = None,
         inference_mode: bool = False,
+        args: Config,
     ):
         """
         Args:
@@ -75,7 +76,7 @@ class SceneModel:
         self.height = height
         self.matcher = matcher
         self.centre = torch.tensor([(width - 1) / 2, (height - 1) / 2], device="cuda")
-        self.anchor_overlap = args.anchor_overlap
+        self.anchor_overlap = args.anchor.anchor_overlap
         self.optimization_thread = None
 
         try:
@@ -90,20 +91,20 @@ class SceneModel:
             self.lpips = None
 
         if not inference_mode:
-            self.num_prev_keyframes_check = args.num_prev_keyframes_check
-            self.active_sh_degree = args.sh_degree
-            self.max_sh_degree = args.sh_degree
-            self.lambda_dssim = args.lambda_dssim
-            self.init_proba_scaler = args.init_proba_scaler
-            self.max_active_keyframes = args.max_active_keyframes
-            self.use_last_frame_proba = args.use_last_frame_proba
+            self.num_prev_keyframes_check = args.miniba.num_prev_keyframes_check
+            self.active_sh_degree = args.data.sh_degree
+            self.max_sh_degree = args.data.sh_degree
+            self.lambda_dssim = args.training.lambda_dssim
+            self.init_proba_scaler = args.gaussian.init_proba_scaler
+            self.max_active_keyframes = args.keyframes.max_active_keyframes
+            self.use_last_frame_proba = args.training.use_last_frame_proba
             self.active_frames_cpu = []
             self.active_frames_gpu = []
-            self.guided_mvs = GuidedMVS(args)
+            self.guided_mvs = GuidedMVS(args.miniba)
             self.lr_dict = {
                 "xyz": {
-                    "lr_init": args.position_lr_init,
-                    "lr_decay": args.position_lr_decay,
+                    "lr_init": args.learning_rates.position_lr_init,
+                    "lr_decay": args.learning_rates.position_lr_decay,
                 }
             }
 
@@ -111,11 +112,11 @@ class SceneModel:
             self.gaussian_params = {
                 "xyz": {
                     "val": torch.empty(0, 3, device="cuda"),
-                    "lr": args.position_lr_init,
+                    "lr": args.learning_rates.position_lr_init,
                 },
                 "f_dc": {
                     "val": torch.empty(0, 1, 3, device="cuda"),
-                    "lr": args.feature_lr,
+                    "lr": args.learning_rates.feature_lr,
                 },
                 "f_rest": {
                     "val": torch.empty(
@@ -124,19 +125,19 @@ class SceneModel:
                         3,
                         device="cuda",
                     ),
-                    "lr": args.feature_lr / 20.0,
+                    "lr": args.learning_rates.feature_lr / 20.0,
                 },
                 "scaling": {
                     "val": torch.empty(0, 3, device="cuda"),
-                    "lr": args.scaling_lr,
+                    "lr": args.learning_rates.scaling_lr,
                 },
                 "rotation": {
                     "val": torch.empty(0, 4, device="cuda"),
-                    "lr": args.rotation_lr,
+                    "lr": args.learning_rates.rotation_lr,
                 },
                 "opacity": {
                     "val": torch.empty(0, 1, device="cuda"),
-                    "lr": args.opacity_lr,
+                    "lr": args.learning_rates.opacity_lr,
                 },
             }
             self.active_anchor = Anchor(self.gaussian_params)
@@ -151,7 +152,7 @@ class SceneModel:
 
         self.approx_cam_centres = None
         self.gt_Rts = torch.empty(0, 4, 4, device="cuda")
-        self.gt_Rts_mask = torch.empty(0, device="cuda", dtype=bool)
+        self.gt_Rts_mask = torch.empty(0, device="cuda", dtype=torch.bool)
         self.gt_f = self.f
         self.cached_Rts = torch.empty(0, 4, 4, device="cuda")
         self.valid_Rt_cache = torch.empty(0, device="cuda", dtype=torch.bool)
@@ -169,7 +170,7 @@ class SceneModel:
             torch.arange(-radius, radius + 1),
             indexing="ij",
         )
-        self.disc_kernel[0, 0, torch.sqrt(x ** 2 + y ** 2) <= radius + 0.5] = 1
+        self.disc_kernel[0, 0, torch.sqrt(x**2 + y**2) <= radius + 0.5] = 1
         self.disc_kernel = self.disc_kernel.cuda() / self.disc_kernel.sum()
 
         self.uv = (
@@ -457,7 +458,7 @@ class SceneModel:
         """
         keyframe = self.keyframes[keyframe_id]
         view_matrix = keyframe.get_Rt().transpose(0, 1)
-        scale = 2 ** pyr_lvl
+        scale = 2**pyr_lvl
         width, height = self.width // scale, self.height // scale
         render_pkg = self.render(width, height, view_matrix, scaling_modifier, bg)
         render_pkg["render"] = (

@@ -9,15 +9,16 @@
 # For inquiries contact  george.drettakis@inria.fr
 #
 
-import cv2
+import logging
 import os
-import numpy as np
-import torch
 from concurrent.futures import ThreadPoolExecutor
 from queue import Queue
-import logging
-from argparse import Namespace
 
+import cv2
+import numpy as np
+import torch
+
+from args import DataConfig
 from dataloaders.read_write_model import read_model, qvec2rotmat
 from utils import get_image_names
 
@@ -29,11 +30,11 @@ class ImageDataset:
     The next image can be fetched using the `getnext` method.
     """
 
-    def __init__(self, args: Namespace):
+    def __init__(self, *, args: DataConfig, test_hold: int, use_colmap_poses: bool = False, eval_poses: bool = False):
         self.images_dir = os.path.join(args.source_path, args.images_dir)
         self.image_name_list = get_image_names(self.images_dir)
         self.image_name_list.sort()
-        self.image_name_list = self.image_name_list[args.start_at :]
+        self.image_name_list = self.image_name_list[args.start_at:]
         self.image_paths = [
             os.path.join(self.images_dir, image_name)
             for image_name in self.image_name_list
@@ -61,7 +62,7 @@ class ImageDataset:
 
         self.infos = {
             name: {
-                "is_test": (args.test_hold > 0) and (i % args.test_hold == 0),
+                "is_test": (test_hold > 0) and (i % test_hold == 0),
                 "name": name,
             }
             for i, name in enumerate(self.image_name_list)
@@ -87,13 +88,13 @@ class ImageDataset:
         has_all_poses = all(
             "Rt" in self.infos[image_name] for image_name in self.image_name_list
         )
-        if args.use_colmap_poses:
+        if use_colmap_poses:
             assert (
                 has_all_poses
             ), "COLMAP poses are required but not all images have poses."
             self.align_colmap_poses()
 
-        if args.eval_poses and not has_all_poses:
+        if eval_poses and not has_all_poses:
             logging.warning(
                 " Not all images have COLMAP poses, pose evaluation will be skipped."
             )

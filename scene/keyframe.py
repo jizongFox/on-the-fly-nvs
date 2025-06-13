@@ -14,6 +14,7 @@ from argparse import Namespace
 import torch
 import torch.nn.functional as F
 
+from args import Config
 from poses.feature_detector import DescribedKeypoints
 from poses.triangulator import Triangulator
 from scene.dense_extractor import DenseExtractor
@@ -39,7 +40,7 @@ class Keyframe:
         feat_extractor: DenseExtractor,
         depth_estimator: MonoDepthEstimator,
         triangulator: Triangulator,
-        args: Namespace,
+        args: Config | None,
         inference_mode: bool = False,
     ):
         self.image_pyr = [image]
@@ -53,16 +54,16 @@ class Keyframe:
             )
             self.f = f
             self.triangulator = triangulator
-            self.depth_loss_weight = args.depth_loss_weight_init
-            self.depth_loss_weight_decay = args.depth_loss_weight_decay
+            self.depth_loss_weight = args.training.depth_loss_weight_init
+            self.depth_loss_weight_decay = args.training.depth_loss_weight_decay
             # Build the multiscale pyramids
-            for _ in range(args.pyr_levels - 1):
+            for _ in range(args.data.pyr_levels - 1):
                 self.image_pyr.append(F.avg_pool2d(self.image_pyr[-1], 2))
             self.mask_pyr = info.pop("mask", None)
-            self.pyr_lvl = args.pyr_levels - 1
+            self.pyr_lvl = args.data.pyr_levels - 1
             if self.mask_pyr is not None:
                 self.mask_pyr = [self.mask_pyr.cuda()]
-                for _ in range(args.pyr_levels - 1):
+                for _ in range(args.data.pyr_levels - 1):
                     self.mask_pyr.append(F.avg_pool2d(self.mask_pyr[-1], 2))
                 for i in range(len(self.mask_pyr)):
                     self.mask_pyr[i] = self.mask_pyr[i] > (1 - 1e-6)
@@ -87,19 +88,22 @@ class Keyframe:
         # Optimizer
         if not inference_mode:  # Only create optimizer in training mode
             params = {
-                "rW2C": {"val": self.rW2C, "lr": args.lr_poses},
-                "tW2C": {"val": self.tW2C, "lr": args.lr_poses},
+                "rW2C": {"val": self.rW2C, "lr": args.learning_rates.lr_poses},
+                "tW2C": {"val": self.tW2C, "lr": args.learning_rates.lr_poses},
                 "depth_scale": {
                     "val": self.depth_scale,
-                    "lr": args.lr_depth_scale_offset,
+                    "lr": args.learning_rates.lr_depth_scale_offset,
                 },
                 "depth_offset": {
                     "val": self.depth_offset,
-                    "lr": args.lr_depth_scale_offset,
+                    "lr": args.learning_rates.lr_depth_scale_offset,
                 },
             }
             if not info["is_test"]:
-                params["exposure"] = {"val": self.exposure, "lr": args.lr_exposure}
+                params["exposure"] = {
+                    "val": self.exposure,
+                    "lr": args.learning_rates.lr_exposure,
+                }
             self.optimizer = BaseAdam(params, betas=(0.8, 0.99))
             self.num_steps = 0
 

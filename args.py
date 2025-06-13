@@ -16,20 +16,21 @@
 # For inquiries contact george.drettakis@inria.fr
 
 from dataclasses import dataclass, field
-from typing import List, Optional, Literal
 from pathlib import Path
+from typing import List, Literal
+
 import tyro
-import os
 
 
 @dataclass
 class DataConfig:
     """Data and image loading options"""
+
     source_path: Path
     """Path to the data folder (should have sparse/0/ if using COLMAP or evaluating poses)"""
     images_dir: Path = Path("images")
     """source_path/images_dir is the path to the images (with extensions jpg, png or jpeg)"""
-    masks_dir: Path = Path("")
+    masks_dir: Path | None = None
     """If set, source_path/masks_dir is the path to optional masks to apply to the images before computing loss (png)"""
     num_loader_threads: int = 4
     """Number of workers to load and prepare input images"""
@@ -37,8 +38,7 @@ class DataConfig:
     """Downsampling ratio for input images"""
     pyr_levels: int = 2
     """Number of pyramid levels. Each level l will downsample the image 2^l times in width and height"""
-    min_displacement: float = 0.03
-    """Minimum median keypoint displacement for a new keyframe to be added. Relative to the image width"""
+
     start_at: int = 0
     """Number of frames to skip from the dataset"""
     sh_degree: int = 3
@@ -48,6 +48,7 @@ class DataConfig:
 @dataclass
 class ColmapConfig:
     """COLMAP-related options"""
+
     eval_poses: bool = False
     """Compare poses to COLMAP"""
     use_colmap_poses: bool = False
@@ -57,6 +58,7 @@ class ColmapConfig:
 @dataclass
 class LearningRateConfig:
     """Learning rate parameters"""
+
     lr_poses: float = 1e-4
     """Pose learning rate"""
     lr_exposure: float = 5e-4
@@ -80,6 +82,7 @@ class LearningRateConfig:
 @dataclass
 class TrainingConfig:
     """Training schedule and loss parameters"""
+
     lambda_dssim: float = 0.2
     """Weight for DSSIM loss"""
     num_iterations: int = 30
@@ -97,6 +100,7 @@ class TrainingConfig:
 @dataclass
 class MatchingConfig:
     """Keypoint matching parameters"""
+
     num_kpts: int = int(4096 * 1.5)
     """Number of keypoints to extract from each image"""
     match_max_error: float = 2e-3
@@ -105,11 +109,14 @@ class MatchingConfig:
     """Maximum number of set of matches used to estimate the fundamental matrix for outlier removal"""
     min_num_inliers: int = 100
     """The keyframe will be added only if the number of inliers is greater than this value"""
+    min_displacement: float = 0.03
+    """Minimum median keypoint displacement for a new keyframe to be added. Relative to the image width"""
 
 
 @dataclass
 class MiniBAConfig:
     """Mini bundle adjustment parameters"""
+
     num_keyframes_miniba_bootstrap: int = 8
     """Number of first keyframes accumulated for pose and focal estimation before optimization"""
     num_pts_miniba_bootstrap: int = 2000
@@ -131,6 +138,7 @@ class MiniBAConfig:
 @dataclass
 class FocalConfig:
     """Focal length estimation parameters"""
+
     fix_focal: bool = False
     """If set, will use init_focal or init_fov without reoptimizing focal"""
     init_focal: float = -1.0
@@ -142,6 +150,7 @@ class FocalConfig:
 @dataclass
 class GaussianConfig:
     """Gaussian initialization parameters"""
+
     init_proba_scaler: float = 2
     """Scale the laplacian-based probability of using a pixel to make a new Gaussian primitive"""
 
@@ -149,6 +158,7 @@ class GaussianConfig:
 @dataclass
 class AnchorConfig:
     """Anchor management parameters"""
+
     anchor_overlap: float = 0.3
     """Size of the overlapping regions when blending between anchors"""
 
@@ -156,6 +166,7 @@ class AnchorConfig:
 @dataclass
 class KeyframeConfig:
     """Keyframe management parameters"""
+
     max_active_keyframes: int = 200
     """Maximum number of keyframes to keep in GPU memory"""
 
@@ -163,6 +174,7 @@ class KeyframeConfig:
 @dataclass
 class EvaluationConfig:
     """Evaluation parameters"""
+
     test_hold: int = -1
     """Holdout for test set, will exclude every test_hold image from the Gaussian optimization"""
     test_frequency: int = -1
@@ -174,6 +186,7 @@ class EvaluationConfig:
 @dataclass
 class CheckpointConfig:
     """Checkpoint and output parameters"""
+
     model_path: Path = Path("")
     """Directory to store the renders from test view and checkpoints after training"""
     save_every: int = -1
@@ -183,6 +196,7 @@ class CheckpointConfig:
 @dataclass
 class ViewerConfig:
     """Viewer configuration"""
+
     viewer_mode: Literal["local", "server", "web", "none"] = "none"
     """Viewer mode"""
     ip: str = "0.0.0.0"
@@ -194,6 +208,7 @@ class ViewerConfig:
 @dataclass
 class Config:
     """Main configuration for data loading and training"""
+
     data: DataConfig
     colmap: ColmapConfig
     learning_rates: LearningRateConfig

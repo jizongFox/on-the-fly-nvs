@@ -12,8 +12,11 @@
 import torch
 import math
 
+from args import Config
 from poses.feature_detector import DescribedKeypoints
+from poses.matcher import Matcher
 from poses.mini_ba import MiniBA
+from poses.triangulator import Triangulator
 from utils import fov2focal, depth2points, sixD2mtx
 from scene.keyframe import Keyframe
 from poses.ransac import RANSACEstimator, EstimatorType
@@ -22,7 +25,15 @@ from poses.ransac import RANSACEstimator, EstimatorType
 class PoseInitializer:
     """Fast pose initializer using MiniBA and the previous frames."""
 
-    def __init__(self, width, height, triangulator, matcher, max_pnp_error, args):
+    def __init__(
+        self,
+        width: int,
+        height,
+        triangulator: Triangulator,
+        matcher: Matcher,
+        max_pnp_error: float,
+        args: Config,
+    ):
         self.width = width
         self.height = height
         self.triangulator = triangulator
@@ -30,55 +41,55 @@ class PoseInitializer:
         self.matcher = matcher
 
         self.centre = torch.tensor([(width - 1) / 2, (height - 1) / 2], device="cuda")
-        self.num_pts_miniba_bootstrap = args.num_pts_miniba_bootstrap
-        self.num_kpts = args.num_kpts
+        self.num_pts_miniba_bootstrap = args.miniba.num_pts_miniba_bootstrap
+        self.num_kpts = args.matching.num_kpts
 
-        self.num_pts_pnpransac = 2 * args.num_pts_miniba_incr
-        self.num_pts_miniba_incr = args.num_pts_miniba_incr
-        self.min_num_inliers = args.min_num_inliers
+        self.num_pts_pnpransac = 2 * args.miniba.num_pts_miniba_incr
+        self.num_pts_miniba_incr = args.miniba.num_pts_miniba_incr
+        self.min_num_inliers = args.matching.min_num_inliers
 
         # Initialize the focal length
-        if args.init_focal > 0:
-            self.f_init = args.init_focal
-        elif args.init_fov > 0:
-            self.f_init = fov2focal(args.init_fov * math.pi / 180, width)
+        if args.focal.init_focal > 0:
+            self.f_init = args.focal.init_focal
+        elif args.focal.init_fov > 0:
+            self.f_init = fov2focal(args.focal.init_fov * math.pi / 180, width)
         else:
             self.f_init = 0.7 * width
 
         # Initialize MiniBA models
         self.miniba_bootstrap = MiniBA(
             1,
-            args.num_keyframes_miniba_bootstrap,
+            args.miniba.num_keyframes_miniba_bootstrap,
             0,
-            args.num_pts_miniba_bootstrap,
-            not args.fix_focal,
+            args.miniba.num_pts_miniba_bootstrap,
+            not args.focal.fix_focal,
             True,
             make_cuda_graph=True,
-            iters=args.iters_miniba_bootstrap,
+            iters=args.miniba.iters_miniba_bootstrap,
         )
         self.miniba_rebooting = MiniBA(
             1,
-            args.num_keyframes_miniba_bootstrap,
+            args.miniba.num_keyframes_miniba_bootstrap,
             0,
-            args.num_pts_miniba_bootstrap,
+            args.miniba.num_pts_miniba_bootstrap,
             False,
             True,
             make_cuda_graph=True,
-            iters=args.iters_miniba_bootstrap,
+            iters=args.miniba.iters_miniba_bootstrap,
         )
         self.miniBA_incr = MiniBA(
             1,
             1,
             0,
-            args.num_pts_miniba_incr,
+            args.miniba.num_pts_miniba_incr,
             optimize_focal=False,
             optimize_3Dpts=False,
             make_cuda_graph=True,
-            iters=args.iters_miniba_incr,
+            iters=args.miniba.iters_miniba_incr,
         )
 
         self.PnPRANSAC = RANSACEstimator(
-            args.pnpransac_samples, self.max_pnp_error, EstimatorType.P4P
+            args.miniba.pnpransac_samples, self.max_pnp_error, EstimatorType.P4P
         )
 
     def build_problem(
