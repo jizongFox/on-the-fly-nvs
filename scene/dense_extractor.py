@@ -22,6 +22,8 @@ class DenseExtractor:
 
     @torch.no_grad()
     def __init__(self, width, height):
+        self.width = width
+        self.height = height
         cache_path = f"models/cache/dense_extractor_{width}_{height}.pt"
         dummy_img = torch.randn(1, 3, height, width).cuda().to(torch.half)
 
@@ -70,7 +72,7 @@ class DenseExtractor:
         return self.extractor(image[None].half())
 
     def __repr__(self):
-        return f"DenseExtractor(width={self.extractor.width}, height={self.extractor.height})"
+        return f"DenseExtractor(width={self.width}, height={self.height})"
 
     def __str__(self):
         return self.__repr__()

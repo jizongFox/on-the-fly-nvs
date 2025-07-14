@@ -30,11 +30,18 @@ class ImageDataset:
     The next image can be fetched using the `getnext` method.
     """
 
-    def __init__(self, *, args: DataConfig, test_hold: int, use_colmap_poses: bool = False, eval_poses: bool = False):
+    def __init__(
+        self,
+        *,
+        args: DataConfig,
+        test_hold: int,
+        use_colmap_poses: bool = False,
+        eval_poses: bool = False,
+    ):
         self.images_dir = os.path.join(args.source_path, args.images_dir)
         self.image_name_list = get_image_names(self.images_dir)
         self.image_name_list.sort()
-        self.image_name_list = self.image_name_list[args.start_at:]
+        self.image_name_list = self.image_name_list[args.start_at :]
         self.image_paths = [
             os.path.join(self.images_dir, image_name)
             for image_name in self.image_name_list
@@ -164,12 +171,13 @@ class ImageDataset:
             logging.warning(
                 f" Failed to read COLMAP files in {colmap_folder_path}: {e}"
             )
-            return
+            raise RuntimeError from e
         if len(cameras) != 1:
             logging.warning(" Only supports one camera")
         model = list(cameras.values())[0].model
         if model != "PINHOLE" and model != "SIMPLE_PINHOLE":
             logging.warning(" Unexpected camera model: " + model)
+            # raise RuntimeError(" Unexpected camera model: " + model)
 
         for image_id, image in images.items():
             camera = cameras[image.camera_id]
@@ -177,6 +185,7 @@ class ImageDataset:
             # Intrinsics and projection matrix
             focal_x = camera.params[0]
             focal_y = camera.params[1] if camera.model == "PINHOLE" else focal_x
+            # note their way of computing focal.
             focal = (focal_x + focal_y) / 2
             focal = focal_x * self.width / camera.width
 

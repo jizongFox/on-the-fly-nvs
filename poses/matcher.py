@@ -9,21 +9,31 @@
 # For inquiries contact  george.drettakis@inria.fr
 #
 
+import typing
+import typing as t
+
 import torch
+from jaxtyping import Float, Int
+from torch import Tensor
 
 from poses.ransac import EstimatorType, RANSACEstimator
 
+if typing.TYPE_CHECKING:
+    from poses.feature_detector import DescribedKeypoints
 
+from dataclasses import dataclass
+
+
+@dataclass(slots=True)
 class Matches:
     """
     A class to store matched keypoints and their indices between two sets of keypoints.
     """
 
-    def __init__(self, kpts, kpts_other, idx, idx_other):
-        self.kpts = kpts
-        self.kpts_other = kpts_other
-        self.idx = idx
-        self.idx_other = idx_other
+    kpts: Float[Tensor, "n 2"]
+    kpts_other: Float[Tensor, "n 2"]
+    idx: Int[Tensor, "n"]
+    idx_other: Int[Tensor, "n"]
 
 
 # Adapted from https://github.com/verlab/accelerated_features
@@ -43,6 +53,13 @@ def match(feats1, feats2, min_cossim=0.82):
 
 
 class Matcher:
+
+    def __str__(self):
+        return f"Matcher(max_error={self.max_error}, fundmat_samples={self.fundmat_estimator.__class__.__name__}, samples={self.fundmat_samples})"
+
+    def __repr__(self):
+        return self.__str__()
+
     @torch.no_grad()
     def __init__(self, fundmat_samples: int, max_error: float):
         """
@@ -52,6 +69,7 @@ class Matcher:
             max_error (float): Maximum error for RANSAC inlier threshold.
         """
         self.max_error = max_error
+        self.fundmat_samples = fundmat_samples
         self.fundmat_estimator = RANSACEstimator(
             fundmat_samples, max_error, EstimatorType.FUNDAMENTAL_8PTS
         )
@@ -70,11 +88,12 @@ class Matcher:
         self,
         desc_kpts: "DescribedKeypoints",
         desc_kpts_other: "DescribedKeypoints",
+        *,
         remove_outliers: bool = False,
-        update_kpts_flag: str = "",
+        update_kpts_flag: t.Literal["all", "inliers", ""] = "",
         kID: int = -1,
         kID_other: int = -1,
-    ):
+    ) -> Matches:
         """
         Matches keypoints between two sets of described keypoints, with optional outlier removal based on the fundamental RANSAC estimation.
         Args:
@@ -106,6 +125,7 @@ class Matcher:
             kpts = kpts[mask]
             kpts_other = kpts_other[mask]
 
+        assert update_kpts_flag in ["all", "inliers", ""]
         if update_kpts_flag == "all":
             assert kID >= 0 and kID_other >= 0
             desc_kpts.update_matches(
@@ -122,5 +142,7 @@ class Matcher:
             desc_kpts_other.update_matches(
                 kID, Matches(kpts_other, kpts, idx_other, idx)
             )
+        else:
+            pass  # do nothing.
 
         return Matches(kpts, kpts_other, idx, idx_other)

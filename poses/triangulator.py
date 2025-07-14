@@ -99,7 +99,7 @@ class TriangulatorInternal(nn.Module):
 
 class Triangulator:
     @torch.no_grad()
-    def __init__(self, n_pts, n_cams, max_error):
+    def __init__(self, *, n_pts, n_cams, max_error):
         self.n_cams = n_cams
         self.model = TriangulatorInternal().eval().cuda()
         uv = torch.rand(n_pts, 2, device="cuda")
@@ -142,8 +142,8 @@ class Triangulator:
 
     def __repr__(self):
         return (
-            f"{self.__class__.__name__}(n_cams={self.n_cams}, max_error={self.max_error.item()}, "
-            f"min_dis={self.min_dis.item()})"
+            f"{self.__class__.__name__}(n_cams={self.n_cams}, max_error={self.max_error.item():.3f}, "
+            f"min_dis={self.min_dis.item():.3f})"
         )
 
     def __str__(self):

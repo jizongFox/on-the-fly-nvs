@@ -9,33 +9,48 @@
 # For inquiries contact  george.drettakis@inria.fr
 #
 
+import os
+from dataclasses import dataclass, field
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import os
 
 from poses.matcher import Matches
 
 
+@dataclass
 class DescribedKeypoints:
     """
     A class to store 2D keypoints, their descriptors, their matches to other images, and their estimated 3D positions.
     """
 
+    kpts: torch.Tensor = field(init=True, repr=False)
+    feats: torch.Tensor = field(init=True, repr=False)
+    valid: torch.Tensor = field(init=False, repr=False)
+    has_pt3d: torch.Tensor = field(init=False, repr=False)
+    pts_conf: torch.Tensor = field(init=False, repr=False)
+    pts3d: torch.Tensor = field(init=False, repr=False)
+    depth: torch.Tensor = field(init=False, repr=False)
+    matches: dict = field(init=False, repr=False)
+    frame_id: int = field(init=False, repr=True)
+
     @torch.no_grad()
-    def __init__(self, kpts, feats):
-        self.kpts = kpts
-        self.feats = feats
-        self.valid = feats.abs().sum(dim=-1) > 0
+    def __post_init__(self):
+        self.valid = self.feats.abs().sum(dim=-1) > 0
         self.nvalid = self.valid.sum()
-        self.has_pt3d = torch.zeros(kpts.shape[0], dtype=torch.bool, device=kpts.device)
+        self.has_pt3d = torch.zeros(
+            self.kpts.shape[0], dtype=torch.bool, device=self.kpts.device
+        )
         self.pts_conf = torch.zeros(
-            kpts.shape[0], dtype=torch.float, device=kpts.device
+            self.kpts.shape[0], dtype=torch.float, device=self.kpts.device
         )
         self.pts3d = torch.zeros(
-            kpts.shape[0], 3, dtype=torch.float, device=kpts.device
+            self.kpts.shape[0], 3, dtype=torch.float, device=self.kpts.device
         )
-        self.depth = torch.zeros(kpts.shape[0], dtype=torch.float, device=kpts.device)
+        self.depth = torch.zeros(
+            self.kpts.shape[0], dtype=torch.float, device=self.kpts.device
+        )
         self.matches = {}
 
     @torch.no_grad()
@@ -102,8 +117,17 @@ class InterpolateSparse2d(nn.Module):
 
 
 class Detector:
+    def __repr__(self):
+        return f"Detector(top_k={self.top_k}, width={self.width}, height={self.height})"
+
+    def __str__(self):
+        return self.__repr__()
+
     @torch.no_grad()
     def __init__(self, top_k, width, height):
+        self.top_k = top_k
+        self.width = width
+        self.height = height
         cache_path = f"models/cache/xfeat_{width}_{height}_{top_k}.pt"
         dummy_img = torch.randn(1, 3, height, width).cuda().to(torch.half)
         if os.path.exists(cache_path):
@@ -202,6 +226,9 @@ class Detector:
 
         self.extractor = extractor
 
-    @torch.no_grad()
-    def __call__(self, image):
-        return DescribedKeypoints(*(self.extractor(image[None].half())))
+    def __call__(self, image, frame_id: int) -> DescribedKeypoints:
+        with torch.no_grad():
+            results = DescribedKeypoints(*(self.extractor(image[None].half())))
+
+        results.frame_id = frame_id
+        return results

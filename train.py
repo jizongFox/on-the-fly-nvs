@@ -8,7 +8,7 @@
 #
 # For inquiries contact  george.drettakis@inria.fr
 #
-
+import typing as t
 import os
 import time
 from http.server import SimpleHTTPRequestHandler
@@ -23,8 +23,8 @@ from tqdm import tqdm
 from args import get_args
 from dataloaders.image_dataset import ImageDataset
 from gaussianviewer import GaussianViewer
-from poses.feature_detector import Detector
-from poses.matcher import Matcher
+from poses.feature_detector import Detector, DescribedKeypoints
+from poses.matcher import Matcher, Matches
 from poses.pose_initializer import PoseInitializer
 from poses.triangulator import Triangulator
 from scene.dense_extractor import DenseExtractor
@@ -34,7 +34,8 @@ from scene.scene_model import SceneModel
 from utils import align_mean_up_fwd, increment_runtime
 from webviewer.webviewer import WebViewer
 
-if __name__ == "__main__":
+
+def main():
     torch.set_float32_matmul_precision("medium")
     torch.backends.cudnn.benchmark = True
     torch.random.manual_seed(0)
@@ -48,8 +49,8 @@ if __name__ == "__main__":
         raise NotImplementedError(
             "Streaming from a URL is not supported yet. Please use a local video file or a directory with images."
         )
-        dataset = StreamDataset(args.source_path, args.downsampling)
-        is_stream = True
+        # dataset = StreamDataset(args.source_path, args.downsampling)
+        # is_stream = True
     else:
         dataset = ImageDataset(
             args=args.data,
@@ -57,6 +58,10 @@ if __name__ == "__main__":
             use_colmap_poses=args.colmap.use_colmap_poses,
             eval_poses=args.colmap.eval_poses,
         )
+        # import matplotlib.pyplot as plt
+        #
+        # plt.imshow(dataset[0][0].permute(1, 2, 0).cpu().numpy()[..., :])
+        # plt.show()
         is_stream = False
     height, width = dataset.get_image_size()
 
@@ -68,7 +73,9 @@ if __name__ == "__main__":
     min_displacement = max(args.matching.min_displacement * width, 30)
     matcher = Matcher(args.matching.fundmat_samples, max_error)
     triangulator = Triangulator(
-        args.matching.num_kpts, args.miniba.num_prev_keyframes_miniba_incr, max_error
+        n_pts=args.matching.num_kpts,
+        n_cams=args.miniba.num_prev_keyframes_miniba_incr,
+        max_error=max_error,
     )
     pose_initializer = PoseInitializer(
         width,
@@ -123,6 +130,7 @@ if __name__ == "__main__":
     print(f"Starting reconstruction for {args.data.source_path}")
     pbar = tqdm(range(0, len(dataset)))
     reconstruction_start_time = time.time()
+    prev_desc_kpts = None
     for frameID in pbar:
         start_time = time.time()
 
@@ -143,35 +151,49 @@ if __name__ == "__main__":
 
         if n_keyframes == 0:
             image, info = dataset.getnext()
-            prev_desc_kpts = detector(image)
+            # import matplotlib.pyplot as plt
+            #
+            # plt.imshow(image.permute(1, 2, 0).cpu().numpy())
+            # plt.show()
+
+            prev_desc_kpts = detector(image, frame_id=frameID)
             bootstrap_keyframe_dicts = [{"image": image, "info": info}]
             bootstrap_desc_kpts = [prev_desc_kpts]
             n_keyframes += 1
             continue
 
+        assert isinstance(prev_desc_kpts, DescribedKeypoints)
+
         image, info = dataset.getnext()
-        desc_kpts = detector(image)
+        desc_kpts: DescribedKeypoints = detector(image, frame_id=frameID)
         # Match features between the previous and current frame
-        curr_prev_matches = matcher(desc_kpts, prev_desc_kpts)
+        curr_prev_matches: Matches = matcher(
+            desc_kpts=desc_kpts, desc_kpts_other=prev_desc_kpts
+        )
+
         # Determine if we should add a keyframe based on the matches
         dist = torch.norm(curr_prev_matches.kpts - curr_prev_matches.kpts_other, dim=-1)
+
         should_add_keyframe = (
             dist.median() > min_displacement
             and len(curr_prev_matches.kpts) > args.matching.min_num_inliers
         )
         # Always add test frames so we estimate their poses
         should_add_keyframe |= info["is_test"]
-        increment_runtime(runtimes["Load"], start_time)
+        increment_runtime(runtimes["Load"], start_time)  # this is just a timer
 
         if should_add_keyframe:
             ## Bootstrap
             # Accumulate keyframes for pose initialization
             if n_keyframes < args.miniba.num_keyframes_miniba_bootstrap:
+                # if bootstrap_keyframe_dicts is not enough, add the current frame.
                 bootstrap_keyframe_dicts.append({"image": image, "info": info})
                 bootstrap_desc_kpts.append(desc_kpts)
 
             if n_keyframes == args.miniba.num_keyframes_miniba_bootstrap - 1:
+
                 start_time = time.time()
+                bootstrap_desc_kpts: t.List[DescribedKeypoints]
                 Rts, f, _ = pose_initializer.initialize_bootstrap(bootstrap_desc_kpts)
                 focal = f.cpu().item()
                 increment_runtime(runtimes["BAB"], start_time)
@@ -303,7 +325,7 @@ if __name__ == "__main__":
 
             n_keyframes += 1
             if not info["is_test"]:
-                prev_desc_kpts = desc_kpts
+                prev_desc_kpts: DescribedKeypoints = desc_kpts
 
             ## Intermediate evaluation
             if (
@@ -402,3 +424,7 @@ if __name__ == "__main__":
             # Loop to keep the viewer alive
             while viewer.running:
                 time.sleep(1)
+
+
+if __name__ == "__main__":
+    main()
