@@ -11,6 +11,8 @@
 
 import torch
 import torch.nn as nn
+from jaxtyping import Float
+from torch import Tensor
 
 from poses.feature_detector import DescribedKeypoints
 from utils import depth2points, pts2px
@@ -69,7 +71,17 @@ class TriangulatorInternal(nn.Module):
         super().__init__()
 
     @torch.no_grad()
-    def forward(self, uv, uvs_others, Rt, Rts_others, f, centre, max_error, min_dis):
+    def forward(
+        self,
+        uv: Float[Tensor, "n 2"],
+        uvs_others: Float[Tensor, "n_cam n_pts 2"],
+        Rt: Float[Tensor, "4 4"],
+        Rts_others: Float[Tensor, "n_cam 4 4"],
+        f,
+        centre,
+        max_error,
+        min_dis,
+    ):
         n_pts = uv.shape[0]
         kpts3d = torch.zeros(n_pts, 3, device="cuda")
         best_disambiguation = torch.zeros(n_pts, device="cuda")
@@ -99,7 +111,7 @@ class TriangulatorInternal(nn.Module):
 
 class Triangulator:
     @torch.no_grad()
-    def __init__(self, *, n_pts, n_cams, max_error):
+    def __init__(self, *, n_pts: int, n_cams: int, max_error: float):
         self.n_cams = n_cams
         self.model = TriangulatorInternal().eval().cuda()
         uv = torch.rand(n_pts, 2, device="cuda")
@@ -111,10 +123,10 @@ class Triangulator:
         self.max_error = torch.tensor(max_error, device="cuda")
         self.min_dis = torch.tensor(max_error * 30, device="cuda")
 
-        self.model = torch.cuda.make_graphed_callables(
-            self.model,
-            (uv, uvs_others, Rt, Rts_others, f, centre, self.max_error, self.min_dis),
-        )
+        # self.model = torch.cuda.make_graphed_callables(
+        #     self.model,
+        #     (uv, uvs_others, Rt, Rts_others, f, centre, self.max_error, self.min_dis),
+        # )
 
     def __call__(self, uv, uvs_others, Rt, Rts_others, f, centre):
         return self.model(

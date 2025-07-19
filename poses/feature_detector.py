@@ -10,11 +10,14 @@
 #
 
 import os
+import typing as t
 from dataclasses import dataclass, field
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from jaxtyping import Float
+from torch import Tensor
 
 from poses.matcher import Matches
 
@@ -22,54 +25,82 @@ from poses.matcher import Matches
 @dataclass
 class DescribedKeypoints:
     """
-    A class to store 2D keypoints, their descriptors, their matches to other images, and their estimated 3D positions.
+    Stores 2D keypoints with descriptors, matches to other images, and estimated 3D positions.
+
+    This represents a complete keypoint detection result for a single image frame,
+    including feature descriptors, correspondence matches, and triangulated 3D points.
     """
 
-    kpts: torch.Tensor = field(init=True, repr=False)
-    feats: torch.Tensor = field(init=True, repr=False)
-    valid: torch.Tensor = field(init=False, repr=False)
-    has_pt3d: torch.Tensor = field(init=False, repr=False)
-    pts_conf: torch.Tensor = field(init=False, repr=False)
-    pts3d: torch.Tensor = field(init=False, repr=False)
-    depth: torch.Tensor = field(init=False, repr=False)
-    matches: dict = field(init=False, repr=False)
+    kpts: Float[Tensor, "n 2"] = field(init=True, repr=False)
+    feats: Float[Tensor, "n 64"] = field(init=True, repr=False)
+    valid: Tensor = field(init=False, repr=False)
+    has_pt3d: Tensor = field(init=False, repr=False)
+    pts_conf: Tensor = field(init=False, repr=False)
+    pts3d: Tensor = field(init=False, repr=False)
+    depth: Tensor = field(init=False, repr=False)
+    matches: t.Dict[int, Matches] = field(init=False, repr=False, default_factory=dict)
     frame_id: int = field(init=False, repr=True)
+
+    @property
+    def n(self) -> int:
+        """Total number of keypoints."""
+        return int(self.kpts.shape[0])
+
+    @property
+    def nvalid(self) -> int:
+        """Number of keypoints with valid descriptors."""
+        return int(self.valid.sum().item())
+
+    @property
+    def n3d(self) -> int:
+        """Number of keypoints with triangulated 3D positions."""
+        return int(self.has_pt3d.sum().item())
+
+    @property
+    def device(self):
+        """Device of the stored tensors."""
+        return self.kpts.device
 
     @torch.no_grad()
     def __post_init__(self):
-        self.valid = self.feats.abs().sum(dim=-1) > 0
-        self.nvalid = self.valid.sum()
-        self.has_pt3d = torch.zeros(
-            self.kpts.shape[0], dtype=torch.bool, device=self.kpts.device
-        )
-        self.pts_conf = torch.zeros(
-            self.kpts.shape[0], dtype=torch.float, device=self.kpts.device
-        )
-        self.pts3d = torch.zeros(
-            self.kpts.shape[0], 3, dtype=torch.float, device=self.kpts.device
-        )
-        self.depth = torch.zeros(
-            self.kpts.shape[0], dtype=torch.float, device=self.kpts.device
-        )
-        self.matches = {}
+        """Initialize derived tensors and validate inputs."""
+        n = self.kpts.shape[0]
+        device = self.kpts.device
 
-    @torch.no_grad()
-    def update_matches(self, other_id, matches, swap=False):
+        # Validate input shapes
+        assert (
+            self.feats.shape[0] == n
+        ), f"Feature count mismatch: {self.feats.shape[0]} != {n}"
+        assert (
+            self.kpts.shape[1] == 2
+        ), f"Keypoints must be 2D: got shape {self.kpts.shape}"
+
+        # Fix the norm calculation (remove extra sum)
+        self.valid = self.feats.norm(dim=-1) > 0
+
+        # Initialize 3D-related tensors
+        self.has_pt3d = torch.zeros(n, dtype=torch.bool, device=device)
+        self.pts_conf = torch.zeros(n, dtype=torch.float, device=device)
+        self.pts3d = torch.zeros(n, 3, dtype=torch.float, device=device)
+        self.depth = torch.zeros(n, dtype=torch.float, device=device)
+
+    def update_matches(self, other_id: int, matches: Matches, swap: bool = False):
+        """Store matches to another frame, optionally swapping reference/other."""
         if swap:
-            matches = Matches(
-                matches.kpts_other, matches.kpts, matches.idx_other, matches.idx
-            )
+            matches = matches.swapped()  # Use the new swapped() method
         self.matches[other_id] = matches
 
     @torch.no_grad()
-    def update_3D_pts(self, pts3D, depth, conf, idx):
+    def update_3D_pts(self, pts3D: Tensor, depth: Tensor, conf: Tensor, idx: Tensor):
+        """Update 3D point estimates for specified keypoints."""
         self.has_pt3d[idx] = True
         self.depth[idx] = depth
         self.pts3d[idx] = pts3D
         self.pts_conf[idx] = conf
 
     @torch.no_grad()
-    def to(self, device):
+    def to(self, device: torch.device | str):
+        """Move all tensors to the specified device and return self for chaining."""
         self.kpts = self.kpts.to(device)
         self.feats = self.feats.to(device)
         self.valid = self.valid.to(device)
@@ -77,11 +108,26 @@ class DescribedKeypoints:
         self.pts_conf = self.pts_conf.to(device)
         self.pts3d = self.pts3d.to(device)
         self.depth = self.depth.to(device)
-        for key in self.matches:
-            self.matches[key].kpts = self.matches[key].kpts.to(device)
-            self.matches[key].kpts_other = self.matches[key].kpts_other.to(device)
-            self.matches[key].idx = self.matches[key].idx.to(device)
-            self.matches[key].idx_other = self.matches[key].idx_other.to(device)
+
+        # Use the new to() method from Matches
+        for matches in self.matches.values():
+            matches.to(device)
+
+        return self
+
+    def cpu(self):
+        """Move all tensors to CPU."""
+        return self.to("cpu")
+
+    def cuda(self):
+        """Move all tensors to CUDA (if available)."""
+        return self.to("cuda")
+
+    def __repr__(self):
+        return (
+            f"DescribedKeypoints(frame_id={self.frame_id}, n={self.n}, "
+            f"nvalid={self.nvalid}, n3d={self.n3d}, matches={len(self.matches)})"
+        )
 
 
 # From https://github.com/verlab/accelerated_features

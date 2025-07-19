@@ -10,18 +10,18 @@
 #
 
 from __future__ import annotations
-from argparse import Namespace
+
 import torch
 import torch.nn.functional as F
 
 from args import Config
+from dataloaders.read_write_model import Camera, BaseImage, rotmat2qvec
 from poses.feature_detector import DescribedKeypoints
 from poses.triangulator import Triangulator
 from scene.dense_extractor import DenseExtractor
 from scene.mono_depth import MonoDepthEstimator, align_depth
 from scene.optimizers import BaseAdam
 from utils import sample, sixD2mtx, make_torch_sampler, depth2points
-from dataloaders.read_write_model import Camera, BaseImage, rotmat2qvec
 
 
 class Keyframe:
@@ -43,6 +43,7 @@ class Keyframe:
         args: Config | None,
         inference_mode: bool = False,
     ):
+        self.frame_id = desc_kpts.frame_id
         self.image_pyr = [image]
         if not inference_mode:  # Only extract depth and feature maps in training mode
             self.feat_map = feat_extractor(image)
@@ -135,6 +136,9 @@ class Keyframe:
         return self.tW2C
 
     def get_Rt(self):
+        """
+        world to camera matrix?
+        """
         Rt = torch.eye(4, device="cuda")
         Rt[:3, :3] = self.get_R()
         Rt[:3, 3] = self.get_t()
@@ -194,8 +198,15 @@ class Keyframe:
         uv, uvs_others, chosen_kfs_ids = self.triangulator.prepare_matches(
             self.desc_kpts
         )
+
+        def _find_keyframe(index):
+            for kf in all_keyframes:
+                if kf.frame_id == index:
+                    return kf
+            raise ValueError(f"Keyframe with index {index} not found")
+
         Rts_others = torch.stack(
-            [all_keyframes[index].get_Rt() for i, index in enumerate(chosen_kfs_ids)],
+            [_find_keyframe(index).get_Rt() for i, index in enumerate(chosen_kfs_ids)],
             dim=0,
         )
         if len(Rts_others < self.triangulator.n_cams):
