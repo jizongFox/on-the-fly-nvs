@@ -10,6 +10,8 @@
 #
 
 import math
+import time
+from dataclasses import dataclass, field
 
 import torch
 from jaxtyping import Bool, Int, Float
@@ -24,6 +26,35 @@ from poses.ransac import RANSACEstimator, EstimatorType
 from poses.triangulator import Triangulator
 from scene.keyframe import Keyframe
 from utils import fov2focal, depth2points, sixD2mtx
+
+
+@dataclass
+class mask_given_index:
+    indices: Int[Tensor, "n"] = field(repr=False)
+    n_matches: int
+
+    def __post_init__(self):
+        self.__mask = torch.zeros(self.n_matches, dtype=torch.bool, device="cuda")
+        self.__mask[self.indices] = True
+
+    def __call__(self, new_indices: Int[Tensor, "n"]) -> Bool[Tensor, "n"]:
+        return self.__mask[new_indices]
+
+
+@dataclass
+class index_to_local_index:
+    from_indices: Int[Tensor, "n1"]
+    to_indices: Int[Tensor, "n1"]
+    matching_num_kpts: int
+
+    def __post_init__(self):
+        self.__hidden_table = torch.empty(
+            self.matching_num_kpts, device="cuda", dtype=torch.long
+        ).fill_(-1)
+        self.__hidden_table[self.from_indices] = self.to_indices
+
+    def __call__(self, new_indices: Int[Tensor, "n2"]) -> Int[Tensor, "n2"]:
+        return self.__hidden_table[new_indices]
 
 
 class PoseInitializer:
@@ -318,7 +349,9 @@ class PoseInitializer:
 
                         # Propagate matches from camera l to remaining cameras
                         for m in range(l + 1, n_cams):
-                            mId = kfId_list[m]
+                            # mId = kfId_list[m]
+                            mId = desc_kpts_list[m].frame_id
+
                             if mId in desc_kpts_list[l].matches:
                                 # Get indices of matches between camera l and m
                                 idxl = desc_kpts_list[l].matches[mId].idx
@@ -355,7 +388,8 @@ class PoseInitializer:
         n_cams: int,
         n_primary_cam: int,
         min_n_matches: int,
-        kfId_list: list[int],
+        *arsg,
+        **kwargs,
     ):
         # Calculate number of points to allocate per primary camera
         npts_per_primary_cam = npts // n_primary_cam
@@ -404,24 +438,16 @@ class PoseInitializer:
             _selected_indices: Int[Tensor, "npts_per_primary_cam"] = torch.multinomial(
                 _idx_occurrences.float(), npts_per_primary_cam, replacement=False
             )
-            print(_selected_indices[:5])
 
-            del _idx_occurrences
-
-            # Create a mask for the selected keypoints
-            _selected_mask: Bool[Tensor, "n_kpts"] = torch.zeros(
-                self.matching_num_kpts, device="cuda", dtype=torch.bool
+            selected_index_to_local = index_to_local_index(
+                _selected_indices,
+                torch.arange(len(_selected_indices), device="cuda"),
+                self.matching_num_kpts,
             )
-            _selected_mask[_selected_indices] = True
-            # this selected_mask is for selecting *npts_per_primary_cam* per-camera
-            # and is for current camera desc_kpts.
 
-            # Create mapping from global keypoint indices to local array indices (0 to npts_per_primary_cam-1)
-            aligned_ids = torch.arange(npts_per_primary_cam, device="cuda")
-            all_aligned_ids: Int[Tensor, "n_kpts"] = torch.zeros(
-                self.matching_num_kpts, device="cuda", dtype=aligned_ids.dtype
+            select_mask_cls = mask_given_index(
+                indices=_selected_indices, n_matches=self.matching_num_kpts
             )
-            all_aligned_ids[_selected_indices] = aligned_ids
 
             # with fixed camera k, Process each camera to establish correspondences
             for other_camera_id in range(n_cams):
@@ -440,12 +466,13 @@ class PoseInitializer:
                         idx_other = desc_kpts_list[camera_id].matches[lId].idx_other
 
                         # Filter matches to only include selected keypoints
-                        mask = _selected_mask[idx_primary]
+                        mask = select_mask_cls(idx_primary)
                         idx_primary = idx_primary[mask]
                         idx_other = idx_other[mask]
+                        # del mask
 
                         # Map to local array indices and store keypoint coordinates and indices
-                        set_idx = all_aligned_ids[idx_primary]
+                        set_idx_copy = set_idx = selected_index_to_local(idx_primary)
                         unused_kpts_mask[other_camera_id, idx_other] = (
                             False  # Mark as used
                         )
@@ -457,43 +484,46 @@ class PoseInitializer:
                         # Prepare for propagating matches to other cameras (transitive matching)
                         # This allows finding correspondences across multiple views
                         selected_indices_l = idx_other.clone()
-                        selected_mask_l = torch.zeros(
-                            self.matching_num_kpts, device="cuda", dtype=torch.bool
+                        _select_mask_l_cls = mask_given_index(
+                            indices=selected_indices_l, n_matches=self.matching_num_kpts
                         )
-                        selected_mask_l[selected_indices_l] = True
-                        all_aligned_ids_l = torch.zeros(
-                            self.matching_num_kpts,
-                            device="cuda",
-                            dtype=aligned_ids.dtype,
-                        )
-                        all_aligned_ids_l[selected_indices_l] = set_idx.clone()
+
+                        # selected_mask_l = torch.zeros(
+                        #     self.matching_num_kpts, device="cuda", dtype=torch.bool
+                        # )
+                        # selected_mask_l[selected_indices_l] = True
 
                         # Propagate matches from camera l to remaining cameras
                         for m in range(other_camera_id + 1, n_cams):
-                            mId = kfId_list[m]
+                            mId = desc_kpts_list[m].frame_id
                             if mId in desc_kpts_list[other_camera_id].matches:
                                 # Get indices of matches between camera l and m
                                 idx_other = (
                                     desc_kpts_list[other_camera_id].matches[mId].idx
                                 )
-                                idxm = (
+                                idx_next = (
                                     desc_kpts_list[other_camera_id]
                                     .matches[mId]
                                     .idx_other
                                 )
 
                                 # Filter to only include selected keypoints from camera l
-                                mask = selected_mask_l[idx_other]
+                                mask = _select_mask_l_cls(idx_other)
                                 idx_other = idx_other[mask]
-                                idxm = idxm[mask]
+                                idx_next = idx_next[mask]
 
                                 # Find the corresponding local array indices and populate if not already set
-                                set_idx = all_aligned_ids_l[idx_other]
+                                set_idx = index_to_local_index(
+                                    selected_indices_l,
+                                    set_idx_copy,
+                                    self.matching_num_kpts,
+                                )(idx_other)
+
                                 set_mask = (
                                     uvs_k[set_idx, m, 0] == -1
                                 )  # Only update unset points
                                 uvs_k[set_idx[set_mask], m, :] = desc_kpts_list[m].kpts[
-                                    idxm[set_mask]
+                                    idx_next[set_mask]
                                 ]
 
         for i in range(n_primary_cam):
@@ -535,11 +565,7 @@ class PoseInitializer:
                     update_kpts_flag="inliers",
                 )
 
-        ## Build the problem by organizing matches
-        uvs, xyz_indices = self.build_problem(
-            desc_kpts_list, npts, n_cams, n_cams, 2, list(range(n_cams))
-        )
-        _uvs, _xyz_indices = self.build_problem_simplified(
+        uvs, xyz_indices = self.build_problem_simplified(
             desc_kpts_list, npts, n_cams, n_cams, 2, list(range(n_cams))
         )
 

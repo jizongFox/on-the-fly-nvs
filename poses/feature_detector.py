@@ -126,7 +126,7 @@ class DescribedKeypoints:
     def __repr__(self):
         return (
             f"DescribedKeypoints(frame_id={self.frame_id}, n={self.n}, "
-            f"nvalid={self.nvalid}, n3d={self.n3d}, matches={len(self.matches)})"
+            f"nvalid={self.nvalid}, n3d={self.n3d}, matches={self.matches.keys()})"
         )
 
 
